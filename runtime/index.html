@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OmniScript Runtime Playground</title>
+    <script src="https://unpkg.com/wabt@1.0.32/index.js"></script>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .container { display: flex; gap: 20px; }
+        textarea { width: 100%; height: 300px; font-family: monospace; }
+        #output { background: #f0f0f0; padding: 10px; min-height: 100px; }
+        button { padding: 10px 20px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>OmniScript Runtime (WAT Loader)</h1>
+    <div class="container">
+        <div style="flex: 1">
+            <h3>WAT Code (Paste generated .wat here)</h3>
+            <textarea id="watInput">
+(module
+  (import "env" "log" (func $log (param i32)))
+  (func $main (export "main") (result i32)
+    i32.const 42
+    call $log
+    i32.const 100
+  )
+)
+            </textarea>
+            <br><br>
+            <button onclick="runWasm()">Run Wasm</button>
+        </div>
+        <div style="flex: 1">
+            <h3>Console Output</h3>
+            <div id="output"></div>
+        </div>
+    </div>
+
+    <script>
+        const outputDiv = document.getElementById('output');
+        let wasmMemory; // Global reference to Wasm memory
+        
+        // Mock standard library
+        const importObject = {
+            env: {
+                log: (arg) => {
+                    logToPage(`[LOG] ${arg}`);
+                },
+                print: (ptr) => {
+                    if (wasmMemory) {
+                        const buffer = new Uint8Array(wasmMemory.buffer);
+                        let str = "";
+                        let i = ptr;
+                        // Read null-terminated string
+                        while (buffer[i] !== 0) {
+                            str += String.fromCharCode(buffer[i]);
+                            i++;
+                        }
+                        logToPage(`[PRINT] ${str}`);
+                    } else {
+                        logToPage(`[ERROR] Memory not accessible`);
+                    }
+                }
+            }
+        };
+
+        function logToPage(msg) {
+            const line = document.createElement('div');
+            line.textContent = msg;
+            outputDiv.appendChild(line);
+            console.log(msg);
+        }
+
+        async function runWasm() {
+            outputDiv.innerHTML = '';
+            const watContent = document.getElementById('watInput').value;
+
+            try {
+                const wabt = await WabtModule();
+                const module = wabt.parseWat('example.wat', watContent);
+                const binary = module.toBinary({});
+                
+                const wasmModule = await WebAssembly.instantiate(binary.buffer, importObject);
+                const { main, memory } = wasmModule.instance.exports;
+                
+                // Save exported memory reference
+                wasmMemory = memory;
+                
+                if (main) {
+                    const result = main();
+                    logToPage(`[RESULT] Main returned: ${result}`);
+                } else {
+                    logToPage(`[INFO] No 'main' function exported.`);
+                }
+            } catch (e) {
+                logToPage(`[ERROR] ${e.message}`);
+            }
+        }
+    </script>
+</body>
+</html>
