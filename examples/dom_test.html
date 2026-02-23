@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OmniScript DOM Test</title>
+    <script src="https://unpkg.com/wabt@1.0.32/index.js"></script>
+    <script src="../runtime/omni_runtime.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #status { padding: 10px; background: #eee; border: 1px solid #ccc; margin-bottom: 10px; }
+        #output { background: #333; color: #fff; padding: 10px; font-family: monospace; height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>OmniScript DOM API Test</h1>
+    
+    <div id="status">Waiting for Wasm...</div>
+    <div id="output"></div>
+
+    <script>
+        // Redirect console.log to output div
+        const originalLog = console.log;
+        const outputDiv = document.getElementById('output');
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            const line = document.createElement('div');
+            line.textContent = args.join(' ');
+            outputDiv.appendChild(line);
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        };
+
+        async function run() {
+            try {
+                // 1. Load WAT
+                const response = await fetch('../output/dom_test.wat');
+                if (!response.ok) throw new Error(`Failed to load WAT: ${response.statusText}`);
+                const wat = await response.text();
+                
+                // 2. Compile WAT to WASM using WABT (since we don't distribute binary wasm yet)
+                const wabt = await WabtModule();
+                const module = wabt.parseWat('dom_test.wat', wat, { threads: true, exceptions: true });
+                const { buffer } = module.toBinary({ log: true, features: { threads: true, exceptions: true } });
+                
+                // 3. Setup Runtime
+                const runtime = new OmniRuntime();
+                
+                // 4. Create Shared Memory (required by OmniScript compiler)
+                // Initial: 100 pages (6.4MB), Max: 1000 pages (64MB)
+                const sharedMemory = new WebAssembly.Memory({ initial: 100, maximum: 1000, shared: true });
+                
+                // Initialize Heap Pointer at 1020 to 10240 (Same as run_wasi.js)
+                const memView = new DataView(sharedMemory.buffer);
+                memView.setInt32(1020, 10240, true);
+                
+                runtime.setMemory(sharedMemory);
+                
+                const imports = runtime.getImports();
+                // Override memory import to use our shared memory
+                imports.env.memory = sharedMemory;
+
+                // 5. Instantiate
+                const wasmModule = await WebAssembly.instantiate(buffer, imports);
+                const instance = wasmModule.instance;
+                
+                console.log("Wasm Instantiated. Running main()...");
+                
+                // 6. Run main
+                if (instance.exports.main) {
+                    instance.exports.main();
+                } else {
+                    console.error("No main function exported!");
+                }
+                
+            } catch (e) {
+                console.error("Error:", e);
+            }
+        }
+
+        run();
+    </script>
+</body>
+</html>

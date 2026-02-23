@@ -40,9 +40,10 @@ Although core language features (type system, classes, generics, garbage collect
     *   **Missing**: Advanced Types (Union Types).
 
 *   **Scenario C: Frontend Web Apps (TypeScript replacement)**
-    *   **Status**: ❌ **Not Ready (Progress ~15%)**
+    *   **Status**: ⚠️ **Partial Ready (Progress ~30%)**
     *   **Goal**: Pure TypeScript-like experience without built-in UI frameworks (React/Vue). UI frameworks will be developed separately.
-    *   **Missing**: DOM APIs, Event System, Automatic Web Worker offloading.
+    *   **Done**: Basic DOM Access via Host Interop (`document.getElementById`, events).
+    *   **Missing**: Event System (callbacks), Automatic Web Worker offloading.
 
 ### �📅 Phase 1: Backend Foundation (The "Node.js Killer" Start)
 **Goal**: Enable OmniScript to run as a standalone backend application, interacting with the OS.
@@ -102,10 +103,9 @@ Although core language features (type system, classes, generics, garbage collect
 ---
 
 ### Next Immediate Steps
-1.  Implement **Advanced Types** (Union Types).
-2.  Implement **DOM APIs** for Frontend.
-3.  Implement **Auto-Parallelism** (Task Scheduler).
-4.  Expand **std/os** with more system calls.
+1.  Implement **Auto-Parallelism** (Task Scheduler).
+2.  Expand **std/os** with more system calls.
+3.  Implement **std/net** (TCP Server).
 
 ## Getting Started
 
