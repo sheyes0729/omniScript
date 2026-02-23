@@ -21,45 +21,67 @@ The core philosophy of OmniScript is "One Language, Two Worlds":
     - **High Efficiency**: AOT (Ahead-of-Time) compilation with manual memory management options or efficient GC, suitable for system-level programming.
     - Bridges the gap between high-level logic and low-level system access.
 
-## Features Status
+## Development Roadmap & Status
 
-### Implemented
+### 📅 Phase 1: Backend Foundation (The "Node.js Killer" Start)
+**Goal**: Enable OmniScript to run as a standalone backend application, interacting with the OS.
 
-- **Compiler Core**:
-  - [x] Lexer & Parser (TypeScript-like syntax)
-  - [x] AST Generation
-  - [x] WAT (WebAssembly Text) Code Generation for MVP
-  - [x] CLI Tool (`omni`)
+- [x] **Multi-Target Compiler**: Support `-target=wasi` (Backend) and `-target=browser` (Frontend).
+- [x] **WASI Integration**: Implement `wasi_snapshot_preview1` bindings.
+    - [x] Replace `console.log` with `fd_write` (stdout).
+    - [x] Read command line arguments.
+    - [x] Read environment variables (process.env).
+- [x] **File System API**: Implement `std/fs` (Node.js-identical).
+    - [x] `fs.writeFile` / `fs.writeFileSync`.
+    - [x] `fs.readFile` / `fs.readFileSync`.
+    - [x] `fs.unlinkSync`, `fs.mkdirSync`, `fs.rmdirSync`, `fs.existsSync`.
+    -   Direct mapping to WASI `path_open`, `fd_read`, `fd_write`.
+- [x] **Control Flow**: Implement `for` and `while` loops.
+- [x] **Runtime Shim**: A lightweight Node.js loader to run OmniScript WASI binaries locally during development (`scripts/run_wasi.js`).
 
-- **Type System**:
-  - [x] Basic Types: `int` (i32), `bool`, `void`
-  - [x] Strings: Immutable, string pool, concatenation
-  - [x] Arrays: Dynamic arrays with bounds checking
-  - [x] Maps/Objects: Hash maps, string keys, index access
-  - [x] Classes: Properties, methods, single inheritance, polymorphism
-  - [x] Generics: `Array<T>`, `Map<K,V>` support
+### 📅 Phase 2: Type System & Core Language Features (The "TypeScript" Promise)
+**Goal**: Enforce strict type safety and provide rich language features.
 
-- **Memory Management**:
-  - [x] Memory Allocator (`malloc`/`free`)
-  - [x] Garbage Collection (Mark-and-Sweep)
+- [x] **Classes & Inheritance**: Support `class`, `extends`, `super`, `new`.
+- [x] **Interfaces**: Support `interface` definitions for structural typing.
+- [x] **Enums**: Support `enum` definitions with integer values.
+- [x] **Type Aliases**: Support `type MyType = int`.
+- [x] **Compile-Time Checks**: Strict validation of function arguments (count).
+- [x] **Generics**: Implement `<T>` for functions and classes (e.g., `Array<T>`).
+- [ ] **Advanced Types**: Union types (`int | string`).
 
-### Roadmap
+### 📅 Phase 3: Concurrency, Memory & Performance (The "Go" Power)
+**Goal**: Unlock multi-core performance, automatic task distribution, and memory safety.
 
-#### Frontend (Wasm + Browser)
-- [ ] **DOM & Web APIs**: First-class support for `window`, `document`, `canvas`.
-- [ ] **Auto-Parallelism**: Static analysis to identify CPU-bound loops/functions and generate Web Worker scaffolding.
-- [ ] **Shared Memory**: Implementation of `SharedArrayBuffer` based heap and `Atomics` for synchronization.
+- [x] **Memory Management**:
+    - [x] **Garbage Collection**: Mark-and-Sweep GC for Objects and Arrays.
+    - [x] **Shared Memory**: Switch default memory model to `SharedArrayBuffer` (Wasm Threads).
+- [x] **Concurrency**:
+    - [x] **Atomics**: Implement `Atomics` intrinsics for thread-safe operations.
+    - [x] **`spawn` keyword**: Lightweight thread creation (allocates new Stack, shares Heap).
+- [ ] **Auto-Parallelism**:
+    - [ ] **Task Scheduler**: Runtime logic to distribute tasks to Web Workers (Frontend) or System Threads (Backend).
+    - [ ] **Compute Density Analysis**: Compiler pass to identify "heavy" functions for auto-offloading.
 
-#### Backend (Native)
-- [ ] **Native Compilation**: LLVM or native assembly backend for generating `.exe`/elf binaries.
-- [ ] **Concurrency Model**: M:N scheduler for lightweight threads (similar to Go routines).
-- [ ] **System APIs**: File system, Networking (TCP/UDP/HTTP), Process management.
+### 📅 Phase 4: Standard Library & Ecosystem
+**Goal**: Provide batteries-included modules for rapid development.
 
-#### Language Core
-- [ ] **Floats**: `float`/`f64` support.
-- [ ] **Modules**: `import`/`export` system.
-- [ ] **Error Handling**: `try`/`catch`/`throw`.
-- [x] **Generics**: Type parameters for flexible data structures (`Array<T>`, `Map<K,V>`).
+- [x] **Core Data Structures**:
+    - [x] **Arrays**: Dynamic arrays (`[]`, `.push`, `.length`).
+    - [x] **Maps**: Hash maps (`{}`, key access).
+    - [x] **Strings**: Basic string manipulation (`substring`, `charCodeAt`, `length`).
+- [x] **std/path**: Cross-platform path manipulation.
+- [x] **std/fs**: File System API (see Phase 1).
+- [ ] **std/http**: High-performance HTTP 1.1/2 Server (using WASI-socket or host bindings).
+- [ ] **std/net**: Low-level TCP/UDP access.
+- [x] **std/os**: OS-level interaction (process.exit, process.env).
+
+---
+
+### Next Immediate Steps
+1.  Implement **Advanced Types** (Union Types).
+2.  Start **std/http** implementation.
+3.  Expand **std/os** with more system calls.
 
 ## Getting Started
 

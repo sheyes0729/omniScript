@@ -21,45 +21,67 @@ OmniScript 的核心理念是 **"一种语言，两个世界"**：
     - **高效率**：采用 AOT（提前编译）技术，结合可选的手动内存管理或高效 GC，适用于系统级编程。
     - 弥合高层业务逻辑与底层系统访问之间的差距。
 
-## 功能状态 (Features Status)
+## 开发路线图与状态 (Development Roadmap & Status)
 
-### 已实现 (Implemented)
+### 📅 阶段 1：后端基础 ("Node.js Killer" 的起点)
+**目标**：使 OmniScript 能够作为独立的后端应用程序运行，并与操作系统交互。
 
-- **编译器核心**:
-  - [x] 词法分析器与语法分析器（类 TypeScript 语法）
-  - [x] AST 生成
-  - [x] WAT (WebAssembly Text) 代码生成（MVP阶段）
-  - [x] 命令行工具 (`omni`)
+- [x] **多目标编译器**：支持 `-target=wasi` (后端) 和 `-target=browser` (前端)。
+- [x] **WASI 集成**：实现 `wasi_snapshot_preview1` 绑定。
+    - [x] 将 `console.log` 替换为 `fd_write` (stdout)。
+    - [x] 读取命令行参数。
+    - [x] 读取环境变量 (process.env)。
+- [x] **文件系统 API**：实现 `std/fs` (与 Node.js 一致)。
+    - [x] `fs.writeFile` / `fs.writeFileSync`.
+    - [x] `fs.readFile` / `fs.readFileSync`.
+    - [x] `fs.unlinkSync`, `fs.mkdirSync`, `fs.rmdirSync`, `fs.existsSync`.
+    -   直接映射到 WASI `path_open`, `fd_read`, `fd_write`.
+- [x] **控制流**：实现 `for` 和 `while` 循环。
+- [x] **运行时 Shim**：一个轻量级的 Node.js 加载器，用于在开发期间在本地运行 OmniScript WASI 二进制文件 (`scripts/run_wasi.js`)。
 
-- **类型系统**:
-  - [x] 基础类型：`int` (i32), `bool`, `void`
-  - [x] 字符串：不可变、字符串池、拼接
-  - [x] 数组：带边界检查的动态数组
-  - [x] 映射/对象：哈希表、字符串键、索引访问
-  - [x] 类：属性、方法、单继承、多态
-  - [x] 泛型：支持 `Array<T>`, `Map<K,V>`
+### 📅 阶段 2：类型系统与核心语言特性 ("TypeScript" 的承诺)
+**目标**：强制执行严格的类型安全并提供丰富的语言特性。
 
-- **内存管理**:
-  - [x] 内存分配器 (`malloc`/`free`)
-  - [x] 垃圾回收 (标记-清除算法)
+- [x] **类与继承**：支持 `class`, `extends`, `super`, `new`。
+- [x] **接口**：支持 `interface` 定义结构化类型。
+- [x] **枚举**：支持带有整数值的 `enum` 定义。
+- [x] **类型别名**：支持 `type MyType = int`。
+- [x] **编译时检查**：严格验证函数参数（数量）。
+- [x] **泛型**：为函数和类实现 `<T>` (例如 `Array<T>`)。
+- [ ] **高级类型**：联合类型 (`int | string`)。
 
-### 路线图 (Roadmap)
+### 📅 阶段 3：并发、内存与性能 ("Go" 的力量)
+**目标**：解锁多核性能、自动任务分发和内存安全。
 
-#### 前端 (Wasm + Browser)
-- [ ] **DOM & Web API**: 对 `window`、`document`、`canvas` 的一等公民支持。
-- [ ] **自动并行化**: 静态分析 CPU 密集型循环/函数，自动生成 Web Worker 胶水代码。
-- [ ] **共享内存**: 基于 `SharedArrayBuffer` 的堆实现及 `Atomics` 同步原语。
+- [x] **内存管理**：
+    - [x] **垃圾回收**：针对对象和数组的标记-清除 GC。
+    - [x] **共享内存**：将默认内存模型切换为 `SharedArrayBuffer` (Wasm 线程)。
+- [x] **并发**：
+    - [x] **原子操作**：实现用于线程安全操作的 `Atomics` 内在函数。
+    - [x] **`spawn` 关键字**：轻量级线程创建（分配新栈，共享堆）。
+- [ ] **自动并行化**：
+    - [ ] **任务调度器**：运行时逻辑，将任务分发给 Web Workers (前端) 或系统线程 (后端)。
+    - [ ] **计算密度分析**：编译器分析过程，用于识别“繁重”的函数以便自动卸载。
 
-#### 后端 (Native)
-- [ ] **原生编译**: 基于 LLVM 或原生汇编后端，生成 `.exe`/elf 二进制文件。
-- [ ] **并发模型**: M:N 调度器实现的轻量级线程（协程）。
-- [ ] **系统 API**: 文件系统、网络 (TCP/UDP/HTTP)、进程管理。
+### 📅 阶段 4：标准库与生态系统
+**目标**：提供“电池包含”的模块，以实现快速开发。
 
-#### 语言核心
-- [ ] **浮点数**: `float`/`f64` 支持。
-- [ ] **模块化**: `import`/`export` 模块系统。
-- [ ] **错误处理**: `try`/`catch`/`throw` 机制。
-- [x] **泛型**: 支持灵活数据结构的类型参数 (`Array<T>`, `Map<K,V>`)。
+- [x] **核心数据结构**：
+    - [x] **数组**：动态数组 (`[]`, `.push`, `.length`)。
+    - [x] **映射**：哈希映射 (`{}`, 键访问)。
+    - [x] **字符串**：基本的字符串操作 (`substring`, `charCodeAt`, `length`)。
+- [x] **std/path**：跨平台路径操作。
+- [x] **std/fs**：文件系统 API (见阶段 1)。
+- [ ] **std/http**：高性能 HTTP 1.1/2 服务器 (使用 WASI-socket 或主机绑定)。
+- [ ] **std/net**：低级 TCP/UDP 访问。
+- [x] **std/os**：操作系统级交互 (process.exit, process.env)。
+
+---
+
+### 下一步计划 (Next Immediate Steps)
+1.  实现 **高级类型** (联合类型)。
+2.  开始 **std/http** 实现。
+3.  扩展 **std/os** 以包含更多系统调用。
 
 ## 快速开始 (Getting Started)
 
