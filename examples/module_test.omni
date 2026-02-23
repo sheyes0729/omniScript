@@ -1,0 +1,9 @@
+import { add, Greeter } from "./module_lib";
+
+function main() {
+  let sum = add(10, 20);
+  print(int_to_string(sum)); // Should print 30
+
+  let g = new Greeter("World");
+  print(g.greet()); // Should print Hello World
+}

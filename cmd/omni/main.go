@@ -48,6 +48,7 @@ func main() {
 
 	// 3. Compiling
 	c := compiler.New(*target)
+	c.SetMainModulePath(filename)
 	if err := c.Compile(program); err != nil {
 		fmt.Printf("Compiler error: %v\n", err)
 		os.Exit(1)

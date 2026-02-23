@@ -4,7 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"os"
+	"path/filepath"
+	"crypto/sha256"
+	"encoding/hex"
 	"omniScript/pkg/ast"
+	"omniScript/pkg/lexer"
+	"omniScript/pkg/parser"
 )
 
 type DataType string
@@ -1365,6 +1371,9 @@ const stdLibWAT = `
   call $str_concat
 )
 
+`
+
+const wasiEnvWAT = `
 (func $process_env (result i32)
   (local $count i32)
   (local $buf_size i32)
@@ -2293,6 +2302,13 @@ type FunctionScope struct {
 	ShadowStackSize int // Number of pointer locals tracked
 }
 
+type ModuleScope struct {
+	Path            string
+	Prefix          string
+	SymbolAliases   map[string]string // Local alias -> Mangled Global Name
+	Exports         map[string]string // Exported Name -> Mangled Global Name
+}
+
 type ClassSymbol struct {
 	Name       string
 	Size       int
@@ -2344,6 +2360,12 @@ type Compiler struct {
 	
 	// Target platform ("wasi" or "browser")
 	target string
+
+	// Module System
+	moduleStack   []*ModuleScope
+	currentModule *ModuleScope
+	loadedModules map[string]*ModuleScope // Path -> Scope (with Exports)
+	baseDir       string                  // Base directory for resolving imports
 }
 
 func New(target string) *Compiler {
@@ -2360,7 +2382,20 @@ func New(target string) *Compiler {
 		enums:          make(map[string]map[string]int),
 		typeAliases:    make(map[string]string),
 		target:         target,
+		loadedModules:  make(map[string]*ModuleScope),
+		moduleStack:    []*ModuleScope{},
+		baseDir:        ".", // Default to current directory
 	}
+	
+	// Create main module scope
+	mainScope := &ModuleScope{
+		Path:          "main",
+		Prefix:        "",
+		SymbolAliases: make(map[string]string),
+		Exports:       make(map[string]string),
+	}
+	c.currentModule = mainScope
+	c.moduleStack = append(c.moduleStack, mainScope)
 	
 	// Add Host Interop Imports
 	c.imports = append(c.imports, `(import "env" "host_get_global" (func $host_get_global (param i32) (result i32)))`)
@@ -2371,8 +2406,19 @@ func New(target string) *Compiler {
 	c.imports = append(c.imports, `(import "env" "host_from_string" (func $host_from_string (param i32) (result i32)))`)
 	c.imports = append(c.imports, `(import "env" "host_to_int" (func $host_to_int (param i32) (result i32)))`)
 	c.imports = append(c.imports, `(import "env" "thread_spawn" (func $thread_spawn (param i32 i32) (result i32)))`)
+
+	if target == "wasi" {
+		c.imports = append(c.imports, `(import "wasi_snapshot_preview1" "environ_sizes_get" (func $environ_sizes_get (param i32 i32) (result i32)))`)
+		c.imports = append(c.imports, `(import "wasi_snapshot_preview1" "environ_get" (func $environ_get (param i32 i32) (result i32)))`)
+	}
 	
 	return c
+}
+
+func (c *Compiler) SetMainModulePath(path string) {
+	absPath, _ := filepath.Abs(path)
+	c.currentModule.Path = absPath
+	c.loadedModules[absPath] = c.currentModule
 }
 
 func (c *Compiler) resolveType(typeName string) DataType {
@@ -2416,12 +2462,124 @@ func (c *Compiler) resolveType(typeName string) DataType {
 	}
 }
 
+func (c *Compiler) CompileModule(importPath string) (*ModuleScope, error) {
+	// 1. Resolve path
+	// If importPath starts with "./" or "../", it's relative to current module's path (dirname)
+	var absPath string
+	var err error
+	
+	if strings.HasPrefix(importPath, ".") {
+		base := c.baseDir
+		if c.currentModule != nil && c.currentModule.Path != "main" {
+			base = filepath.Dir(c.currentModule.Path)
+		}
+		absPath, err = filepath.Abs(filepath.Join(base, importPath))
+	} else {
+		// Assume absolute or CWD-relative if no prefix, or handle std lib
+		absPath, err = filepath.Abs(importPath)
+	}
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	// Add extension if missing
+	if filepath.Ext(absPath) == "" {
+		absPath += ".omni"
+	}
+
+	// 2. Check cache
+	if scope, ok := c.loadedModules[absPath]; ok {
+		return scope, nil
+	}
+
+	// 3. Read file
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read module %s: %v", absPath, err)
+	}
+
+	// 4. Parse
+	l := lexer.New(string(content))
+	p := parser.New(l)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		return nil, fmt.Errorf("parser errors in module %s: %v", absPath, p.Errors())
+	}
+
+	// 5. Create Scope
+	// Generate prefix based on hash of path
+	hash := sha256.Sum256([]byte(absPath))
+	prefix := "mod_" + hex.EncodeToString(hash[:4]) + "_"
+	
+	scope := &ModuleScope{
+		Path:          absPath,
+		Prefix:        prefix,
+		SymbolAliases: make(map[string]string),
+		Exports:       make(map[string]string),
+	}
+	
+	// Push scope
+	c.moduleStack = append(c.moduleStack, scope)
+	c.currentModule = scope
+	
+	// 6. Compile
+	// Recursively compile the program
+	if err := c.Compile(program); err != nil {
+		// pop scope on error
+		c.moduleStack = c.moduleStack[:len(c.moduleStack)-1]
+		c.currentModule = c.moduleStack[len(c.moduleStack)-1]
+		return nil, err
+	}
+	
+	// Pop scope
+	c.moduleStack = c.moduleStack[:len(c.moduleStack)-1]
+	c.currentModule = c.moduleStack[len(c.moduleStack)-1]
+	
+	// 7. Cache
+	c.loadedModules[absPath] = scope
+	
+	return scope, nil
+}
+
 func (c *Compiler) Compile(node ast.Node) error {
 	switch node := node.(type) {
 	case *ast.Program:
+		// Helper to unwrap ExportStatement
+		unwrap := func(s ast.Statement) (ast.Statement, bool) {
+			if exp, ok := s.(*ast.ExportStatement); ok {
+				return exp.Statement, true
+			}
+			return s, false
+		}
+		
+		// Helper to register export if needed
+		registerExport := func(s ast.Statement, inner ast.Statement) {
+			if _, ok := s.(*ast.ExportStatement); ok {
+				var name string
+				switch stmt := inner.(type) {
+				case *ast.ClassStatement:
+					name = stmt.Name.Value
+				case *ast.ExpressionStatement:
+					if fn, ok := stmt.Expression.(*ast.FunctionLiteral); ok {
+						name = fn.Name
+					}
+				}
+				if name != "" {
+					mangledName := c.currentModule.Prefix + name
+					c.currentModule.Exports[name] = mangledName
+				}
+			}
+		}
+
 		// 1. First pass: Compile imports
 		for _, stmt := range node.Statements {
 			if _, ok := stmt.(*ast.ImportStatement); ok {
+				if err := c.Compile(stmt); err != nil {
+					return err
+				}
+			}
+			if _, ok := stmt.(*ast.ImportModuleStatement); ok {
 				if err := c.Compile(stmt); err != nil {
 					return err
 				}
@@ -2430,14 +2588,16 @@ func (c *Compiler) Compile(node ast.Node) error {
 
 		// 1.2 Pass: Define Type Aliases
 		for _, stmt := range node.Statements {
-			if typeAliasStmt, ok := stmt.(*ast.TypeAliasStatement); ok {
+			s, _ := unwrap(stmt)
+			if typeAliasStmt, ok := s.(*ast.TypeAliasStatement); ok {
 				c.typeAliases[typeAliasStmt.Name.Value] = typeAliasStmt.Value
 			}
 		}
 
 		// 1.3 Pass: Define Enums
 		for _, stmt := range node.Statements {
-			if enumStmt, ok := stmt.(*ast.EnumStatement); ok {
+			s, _ := unwrap(stmt)
+			if enumStmt, ok := s.(*ast.EnumStatement); ok {
 				if err := c.defineEnum(enumStmt); err != nil {
 					return err
 				}
@@ -2446,7 +2606,8 @@ func (c *Compiler) Compile(node ast.Node) error {
 
 		// 1.4 Pass: Define Interfaces
 		for _, stmt := range node.Statements {
-			if ifaceStmt, ok := stmt.(*ast.InterfaceStatement); ok {
+			s, _ := unwrap(stmt)
+			if ifaceStmt, ok := s.(*ast.InterfaceStatement); ok {
 				if err := c.defineInterface(ifaceStmt); err != nil {
 					return err
 				}
@@ -2455,16 +2616,19 @@ func (c *Compiler) Compile(node ast.Node) error {
 
 		// 1.5 Pass: Define Classes
 		for _, stmt := range node.Statements {
-			if classStmt, ok := stmt.(*ast.ClassStatement); ok {
+			s, _ := unwrap(stmt)
+			if classStmt, ok := s.(*ast.ClassStatement); ok {
 				if err := c.defineClass(classStmt); err != nil {
 					return err
 				}
+				registerExport(stmt, s)
 			}
 		}
 
 		// 1.6 Pass: Compile Class Methods
 		for _, stmt := range node.Statements {
-			if classStmt, ok := stmt.(*ast.ClassStatement); ok {
+			s, _ := unwrap(stmt)
+			if classStmt, ok := s.(*ast.ClassStatement); ok {
 				if err := c.compileClassMethods(classStmt); err != nil {
 					return err
 				}
@@ -2473,7 +2637,8 @@ func (c *Compiler) Compile(node ast.Node) error {
 
 		// 1.7 Pass: Check Interface Implementation
 		for _, stmt := range node.Statements {
-			if classStmt, ok := stmt.(*ast.ClassStatement); ok {
+			s, _ := unwrap(stmt)
+			if classStmt, ok := s.(*ast.ClassStatement); ok {
 				if err := c.checkInterfaceImplementation(classStmt); err != nil {
 					return err
 				}
@@ -2482,21 +2647,27 @@ func (c *Compiler) Compile(node ast.Node) error {
 
 		// 1.8 Pass: Collect Function Names and Signatures
 		for _, stmt := range node.Statements {
-			if exprStmt, ok := stmt.(*ast.ExpressionStatement); ok {
+			s, _ := unwrap(stmt)
+			if exprStmt, ok := s.(*ast.ExpressionStatement); ok {
 				if fn, ok := exprStmt.Expression.(*ast.FunctionLiteral); ok {
 					sig := FunctionSignature{ParamTypes: []DataType{}}
 					for _, p := range fn.Parameters {
 						t := c.resolveType(p.Type)
 						sig.ParamTypes = append(sig.ParamTypes, t)
 					}
-					c.definedFuncs[fn.Name] = sig
+					// Use prefixed name
+					mangledName := c.currentModule.Prefix + fn.Name
+					c.definedFuncs[mangledName] = sig
+					
+					registerExport(stmt, s)
 				}
 			}
 		}
 
 		// 2. Second pass: Compile functions
 		for _, stmt := range node.Statements {
-			if exprStmt, ok := stmt.(*ast.ExpressionStatement); ok {
+			s, _ := unwrap(stmt)
+			if exprStmt, ok := s.(*ast.ExpressionStatement); ok {
 				if fn, ok := exprStmt.Expression.(*ast.FunctionLiteral); ok {
 					if err := c.compileFunction(fn); err != nil {
 						return err
@@ -2523,6 +2694,52 @@ func (c *Compiler) Compile(node ast.Node) error {
 		c.imports = append(c.imports, importStr)
 		c.importedFuncs[funcName] = node
 	
+	case *ast.ImportModuleStatement:
+		// Compile module
+		scope, err := c.CompileModule(node.Source)
+		if err != nil {
+			return err
+		}
+		
+		// Import symbols
+		for _, ident := range node.Identifiers {
+			name := ident.Value
+			// Look up in exports
+			if mangledName, ok := scope.Exports[name]; ok {
+				c.currentModule.SymbolAliases[name] = mangledName
+			} else {
+				return fmt.Errorf("module %s does not export %s", node.Source, name)
+			}
+		}
+		return nil
+
+	case *ast.ExportStatement:
+		// Compile inner statement
+		// We need to determine the name to export.
+		var name string
+		
+		switch stmt := node.Statement.(type) {
+		case *ast.ClassStatement:
+			name = stmt.Name.Value
+		case *ast.ExpressionStatement:
+			if fn, ok := stmt.Expression.(*ast.FunctionLiteral); ok {
+				name = fn.Name
+			}
+		}
+		
+		// Compile the statement
+		if err := c.Compile(node.Statement); err != nil {
+			return err
+		}
+		
+		// Register export
+		if name != "" {
+			// The symbol is defined with prefix in the current module.
+			mangledName := c.currentModule.Prefix + name
+			c.currentModule.Exports[name] = mangledName
+		}
+		return nil
+
 	case *ast.InterfaceStatement:
 		// Interfaces are compile-time only, no code generation needed.
 		return nil
@@ -2674,6 +2891,25 @@ func (c *Compiler) Compile(node ast.Node) error {
 
 	case *ast.NewExpression:
 		className := node.Class.Value
+		
+		// 1. Try prefixed class
+		prefixed := ""
+		if c.currentModule != nil && c.currentModule.Prefix != "" {
+			prefixed = c.currentModule.Prefix + className
+		}
+		
+		if _, ok := c.classes[prefixed]; ok {
+			className = prefixed
+		} else if c.currentModule != nil {
+			// 2. Try alias
+			if alias, ok := c.currentModule.SymbolAliases[className]; ok {
+				// Alias might point to a class
+				if _, ok := c.classes[alias]; ok {
+					className = alias
+				}
+			}
+		}
+
 		classSym, ok := c.classes[className]
 		if !ok {
 			return fmt.Errorf("undefined class: %s", className)
@@ -2730,7 +2966,25 @@ func (c *Compiler) Compile(node ast.Node) error {
 	case *ast.MemberExpression:
 		// Check for Enum Access (e.g., Color.Red)
 		if ident, ok := node.Object.(*ast.Identifier); ok {
-			if members, isEnum := c.enums[ident.Value]; isEnum {
+			enumName := ident.Value
+			
+			// Resolution
+			prefixed := ""
+			if c.currentModule != nil && c.currentModule.Prefix != "" {
+				prefixed = c.currentModule.Prefix + enumName
+			}
+			
+			if _, ok := c.enums[prefixed]; ok {
+				enumName = prefixed
+			} else if c.currentModule != nil {
+				if alias, ok := c.currentModule.SymbolAliases[enumName]; ok {
+					if _, ok := c.enums[alias]; ok {
+						enumName = alias
+					}
+				}
+			}
+
+			if members, isEnum := c.enums[enumName]; isEnum {
 				val, ok := members[node.Property.Value]
 				if !ok {
 					return fmt.Errorf("enum %s has no member %s", ident.Value, node.Property.Value)
@@ -3596,20 +3850,51 @@ func (c *Compiler) Compile(node ast.Node) error {
 		}
 
 		if ident, ok := node.Function.(*ast.Identifier); ok {
+			funcName := ident.Value
+
 			// Determine call type
 			isLocalSymbol := false
-			if _, ok := c.current.Symbols[ident.Value]; ok {
+			if _, ok := c.current.Symbols[funcName]; ok {
 				isLocalSymbol = true
 			}
 			
-			isImported := false
-			if _, ok := c.importedFuncs[ident.Value]; ok {
-				isImported = true
+			// Module Resolution
+			prefixed := ""
+			if c.currentModule != nil && c.currentModule.Prefix != "" {
+				prefixed = c.currentModule.Prefix + funcName
 			}
 			
+			resolvedName := funcName
 			isDefined := false
-			if _, ok := c.definedFuncs[ident.Value]; ok {
+			
+			// 1. Try prefixed (Local module function)
+			if _, ok := c.definedFuncs[prefixed]; ok {
+				resolvedName = prefixed
 				isDefined = true
+			} else if c.currentModule != nil {
+				// 2. Try alias (Imported module function)
+				if alias, ok := c.currentModule.SymbolAliases[funcName]; ok {
+					resolvedName = alias
+					// Check if it's defined (it should be)
+					if _, ok := c.definedFuncs[alias]; ok {
+						isDefined = true
+					}
+				}
+			}
+			
+			// 3. Try global (stdlib or main or FFI that looks defined?)
+			if !isDefined {
+				if _, ok := c.definedFuncs[funcName]; ok {
+					resolvedName = funcName
+					isDefined = true
+				}
+			}
+			
+			// FFI Import Check (always global name)
+			isImported := false
+			if _, ok := c.importedFuncs[funcName]; ok {
+				isImported = true
+				resolvedName = funcName
 			}
 			
 			// 1. Local Symbol (e.g. host handle in var)
@@ -3661,7 +3946,7 @@ func (c *Compiler) Compile(node ast.Node) error {
 					return nil
 				}
 				// Else: Local var but not TypeHost? Function pointer not supported.
-				return fmt.Errorf("calling local variable %s of type %s not supported", ident.Value, c.stackType)
+				return fmt.Errorf("calling local variable %s of type %s not supported", funcName, c.stackType)
 			}
 			
 			// 2. Imported Function
@@ -3671,9 +3956,9 @@ func (c *Compiler) Compile(node ast.Node) error {
 					if err := c.Compile(arg); err != nil { return err }
 				}
 				
-				c.emit(fmt.Sprintf("call $%s", ident.Value))
+				c.emit(fmt.Sprintf("call $%s", resolvedName))
 				
-				if c.importedFuncs[ident.Value].ReturnType != "void" {
+				if c.importedFuncs[resolvedName].ReturnType != "void" {
 					c.stackType = TypeInt
 				} else {
 					c.stackType = TypeVoid
@@ -3683,15 +3968,15 @@ func (c *Compiler) Compile(node ast.Node) error {
 			
 			// 3. Defined Internal Function (or stdlib)
 			if isDefined {
-				sig := c.definedFuncs[ident.Value]
+				sig := c.definedFuncs[resolvedName]
 				if len(node.Arguments) != len(sig.ParamTypes) {
-					return fmt.Errorf("function %s expects %d arguments, got %d", ident.Value, len(sig.ParamTypes), len(node.Arguments))
+					return fmt.Errorf("function %s expects %d arguments, got %d", funcName, len(sig.ParamTypes), len(node.Arguments))
 				}
 
 				for _, arg := range node.Arguments {
 					if err := c.Compile(arg); err != nil { return err }
 				}
-				c.emit(fmt.Sprintf("call $%s", ident.Value))
+				c.emit(fmt.Sprintf("call $%s", resolvedName))
 				c.stackType = TypeInt // MVP assumption
 				return nil
 			}
@@ -3700,30 +3985,16 @@ func (c *Compiler) Compile(node ast.Node) error {
 			// If not local, not imported, not defined -> Host Call
 			
 			if c.target == "wasi" {
-				if ident.Value == "print" {
+				if funcName == "print" {
 					// Handle print via WASI
 					arg := node.Arguments[0]
 					if err := c.Compile(arg); err != nil { return err }
 					
-					// Assuming string argument for now
-					// Prepare iovec for fd_write
-					// [ptr, len]
-					// We need to store iovec in memory. Let's use stack space (shadow stack base?) or allocate.
-					// For MVP, allocate 8 bytes for iovec
-					
-					// Arg is on stack (pointer to string)
-					// Get length
-					
-					// Hacky WASI print implementation for MVP
-					// We need (local $str i32) (local $len i32) (local $iov i32) (local $written i32)
-					// But we are in expression compilation, locals must be declared at top.
-					// We can't easily add locals here.
-					// Alternative: Call a helper function $wasi_print
 					c.emit("call $wasi_print")
 					c.stackType = TypeVoid
 					return nil
 				}
-				if ident.Value == "int_to_string" {
+				if funcName == "int_to_string" {
 					if len(node.Arguments) != 1 {
 						return fmt.Errorf("int_to_string expects 1 argument")
 					}
@@ -3732,17 +4003,17 @@ func (c *Compiler) Compile(node ast.Node) error {
 					c.stackType = TypeString
 					return nil
 				}
-				return fmt.Errorf("unknown function or global in WASI mode: %s", ident.Value)
+				return fmt.Errorf("unknown function or global in WASI mode: %s", funcName)
 			}
 
 			// Get Global Handle
-			offset, ok := c.stringPool[ident.Value]
+			offset, ok := c.stringPool[funcName]
 			if !ok {
 				offset = c.nextDataOffset
-				c.stringPool[ident.Value] = offset
-				c.nextDataOffset += len(ident.Value) + 1
+				c.stringPool[funcName] = offset
+				c.nextDataOffset += len(funcName) + 1
 			}
-			c.emit(fmt.Sprintf("i32.const %d ;; \"%s\"", offset, ident.Value))
+			c.emit(fmt.Sprintf("i32.const %d ;; \"%s\"", offset, funcName))
 			c.emit("call $host_get_global")
 			
 			handleTemp := c.current.NextLocalID
@@ -4042,7 +4313,11 @@ func (c *Compiler) Compile(node ast.Node) error {
 }
 
 func (c *Compiler) compileFunction(fn *ast.FunctionLiteral) error {
-	scope := NewFunctionScope(fn.Name)
+	funcName := fn.Name
+	if c.currentModule != nil && c.currentModule.Prefix != "" {
+		funcName = c.currentModule.Prefix + fn.Name
+	}
+	scope := NewFunctionScope(funcName)
 	c.current = scope
 	c.functions = append(c.functions, scope)
 
@@ -4187,6 +4462,9 @@ func (c *Compiler) GenerateWAT() string {
 
 	// Emit Standard Library
 	out.WriteString(stdLibWAT)
+	if c.target == "wasi" {
+		out.WriteString(wasiEnvWAT)
+	}
 	out.WriteString("\n(func $noop)\n")
 	
 	if c.target == "wasi" {
@@ -4900,6 +5178,10 @@ func (c *Compiler) emitGCTrace(out *bytes.Buffer) {
 
 func (c *Compiler) defineEnum(node *ast.EnumStatement) error {
 	enumName := node.Name.Value
+	if c.currentModule != nil && c.currentModule.Prefix != "" {
+		enumName = c.currentModule.Prefix + node.Name.Value
+	}
+
 	if _, exists := c.enums[enumName]; exists {
 		return fmt.Errorf("enum %s already defined", enumName)
 	}
@@ -4928,6 +5210,10 @@ func (c *Compiler) defineEnum(node *ast.EnumStatement) error {
 
 func (c *Compiler) defineClass(node *ast.ClassStatement) error {
 	className := node.Name.Value
+	if c.currentModule != nil && c.currentModule.Prefix != "" {
+		className = c.currentModule.Prefix + node.Name.Value
+	}
+
 	classSymbol := ClassSymbol{
 		Name:       className,
 		Fields:     make(map[string]int),
@@ -4987,6 +5273,10 @@ func (c *Compiler) defineClass(node *ast.ClassStatement) error {
 
 func (c *Compiler) compileClassMethods(node *ast.ClassStatement) error {
 	className := node.Name.Value
+	if c.currentModule != nil && c.currentModule.Prefix != "" {
+		className = c.currentModule.Prefix + node.Name.Value
+	}
+
 	c.currentClass = className
 	defer func() { c.currentClass = "" }()
 
@@ -5038,6 +5328,10 @@ func (c *Compiler) defineInterface(node *ast.InterfaceStatement) error {
 
 func (c *Compiler) checkInterfaceImplementation(node *ast.ClassStatement) error {
 	className := node.Name.Value
+	if c.currentModule != nil && c.currentModule.Prefix != "" {
+		className = c.currentModule.Prefix + node.Name.Value
+	}
+
 	classSym, ok := c.classes[className]
 	if !ok { return fmt.Errorf("internal error: class %s not found", className) }
 

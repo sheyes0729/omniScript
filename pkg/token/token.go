@@ -62,6 +62,9 @@ const (
 	ENUM       = "ENUM"
 	TYPE       = "TYPE"
 	FOR        = "FOR"
+	IMPORT     = "IMPORT"
+	EXPORT     = "EXPORT"
+	FROM       = "FROM"
 )
 
 type Token struct {
@@ -97,6 +100,9 @@ var keywords = map[string]TokenType{
 	"enum":       ENUM,
 	"type":       TYPE,
 	"for":        FOR,
+	"import":     IMPORT,
+	"export":     EXPORT,
+	"from":       FROM,
 }
 
 func LookupIdent(ident string) TokenType {

@@ -580,3 +580,39 @@ func (ss *SpawnStatement) TokenLiteral() string { return ss.Token.Literal }
 func (ss *SpawnStatement) String() string {
 	return "spawn " + ss.Call.String()
 }
+
+// ImportModuleStatement represents import { x, y } from "module";
+type ImportModuleStatement struct {
+	Token       token.Token // token.IMPORT
+	Identifiers []*Identifier
+	Source      string
+}
+
+func (ims *ImportModuleStatement) statementNode()       {}
+func (ims *ImportModuleStatement) TokenLiteral() string { return ims.Token.Literal }
+func (ims *ImportModuleStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("import { ")
+	for i, ident := range ims.Identifiers {
+		out.WriteString(ident.String())
+		if i < len(ims.Identifiers)-1 {
+			out.WriteString(", ")
+		}
+	}
+	out.WriteString(" } from \"")
+	out.WriteString(ims.Source)
+	out.WriteString("\";")
+	return out.String()
+}
+
+// ExportStatement represents export function/class/var ...
+type ExportStatement struct {
+	Token     token.Token // token.EXPORT
+	Statement Statement
+}
+
+func (es *ExportStatement) statementNode()       {}
+func (es *ExportStatement) TokenLiteral() string { return es.Token.Literal }
+func (es *ExportStatement) String() string {
+	return "export " + es.Statement.String()
+}

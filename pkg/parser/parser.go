@@ -147,6 +147,10 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseEnumStatement()
 	case token.TYPE:
 		return p.parseTypeAliasStatement()
+	case token.IMPORT:
+		return p.parseImportModuleStatement()
+	case token.EXPORT:
+		return p.parseExportStatement()
 	default:
 		return p.parseExpressionStatement()
 	}
@@ -485,6 +489,60 @@ func (p *Parser) parseSpawnStatement() *ast.SpawnStatement {
 	return stmt
 }
 
+func (p *Parser) parseImportModuleStatement() *ast.ImportModuleStatement {
+	stmt := &ast.ImportModuleStatement{Token: p.curToken}
+
+	if !p.expectPeek(token.LBRACE) {
+		return nil
+	}
+
+	stmt.Identifiers = []*ast.Identifier{}
+
+	// Parse identifiers inside { }
+	for p.peekToken.Type != token.RBRACE {
+		p.nextToken()
+		if p.curToken.Type == token.IDENT {
+			ident := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+			stmt.Identifiers = append(stmt.Identifiers, ident)
+		}
+		
+		if p.peekToken.Type == token.COMMA {
+			p.nextToken()
+		}
+	}
+
+	if !p.expectPeek(token.RBRACE) {
+		return nil
+	}
+
+	if !p.expectPeek(token.FROM) {
+		return nil
+	}
+
+	if !p.expectPeek(token.STRING) {
+		return nil
+	}
+
+	stmt.Source = p.curToken.Literal
+
+	if p.peekToken.Type == token.SEMICOLON {
+		p.nextToken()
+	}
+
+	return stmt
+}
+
+func (p *Parser) parseExportStatement() *ast.ExportStatement {
+	stmt := &ast.ExportStatement{Token: p.curToken}
+	
+	p.nextToken()
+	
+	// Export can precede: let, function, class, interface, enum, type
+	stmt.Statement = p.parseStatement()
+	
+	return stmt
+}
+
 func (p *Parser) parseLetStatement() *ast.LetStatement {
 	stmt := &ast.LetStatement{Token: p.curToken}
 
@@ -687,6 +745,12 @@ func (p *Parser) parseFunctionLiteral() ast.Expression {
 	}
 
 	lit.Parameters = p.parseFunctionParameters()
+
+	// Parse optional return type
+	if p.peekToken.Type == token.COLON {
+		p.nextToken()
+		lit.ReturnType = p.parseType()
+	}
 
 	if !p.expectPeek(token.LBRACE) {
 		return nil
@@ -944,6 +1008,12 @@ func (p *Parser) parseClassStatement() *ast.ClassStatement {
 			
 			method.Parameters = p.parseFunctionParameters()
 			
+			// Parse optional return type
+			if p.peekToken.Type == token.COLON {
+				p.nextToken()
+				method.ReturnType = p.parseType()
+			}
+			
 			if !p.expectPeek(token.LBRACE) {
 				return nil
 			}
@@ -963,8 +1033,8 @@ func (p *Parser) parseClassStatement() *ast.ClassStatement {
 			p.nextToken() // consume name
 			
 			if p.curToken.Type == token.COLON {
-				p.nextToken() // consume :
 				field.Type = p.parseType()
+				p.nextToken()
 			}
 			
 			if p.curToken.Type == token.ASSIGN {
