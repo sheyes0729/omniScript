@@ -76,9 +76,9 @@ if (isMainThread) {
         const watContent = fs.readFileSync(watPath, 'utf8');
 
         const wabt = await WabtModule();
-        const module = wabt.parseWat(path.basename(watPath), watContent, { threads: true });
+        const module = wabt.parseWat(path.basename(watPath), watContent, { threads: true, exceptions: true });
         // Enable threads feature
-        const { buffer } = module.toBinary({ features: { threads: true } });
+        const { buffer } = module.toBinary({ features: { threads: true, exceptions: true } });
 
         // Create shared memory
         // Initial: 100 pages (6.4MB), Max: 1000 pages (64MB)

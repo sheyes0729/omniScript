@@ -65,6 +65,10 @@ const (
 	IMPORT     = "IMPORT"
 	EXPORT     = "EXPORT"
 	FROM       = "FROM"
+	TRY        = "TRY"
+	CATCH      = "CATCH"
+	FINALLY    = "FINALLY"
+	THROW      = "THROW"
 )
 
 type Token struct {
@@ -98,6 +102,10 @@ var keywords = map[string]TokenType{
 	"implements": IMPLEMENTS,
 	"spawn":      SPAWN,
 	"enum":       ENUM,
+	"try":        TRY,
+	"catch":      CATCH,
+	"finally":    FINALLY,
+	"throw":      THROW,
 	"type":       TYPE,
 	"for":        FOR,
 	"import":     IMPORT,

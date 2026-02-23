@@ -1,0 +1,15 @@
+function main() {
+    print("Starting try-catch test...");
+
+    try {
+        print("Inside try block");
+        throw 123;
+        print("This should not be printed");
+    } catch (e) {
+        print("Caught exception: " + e);
+    } finally {
+        print("Finally block executed");
+    }
+
+    print("After try-catch");
+}

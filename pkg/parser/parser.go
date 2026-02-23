@@ -151,6 +151,10 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseImportModuleStatement()
 	case token.EXPORT:
 		return p.parseExportStatement()
+	case token.TRY:
+		return p.parseTryStatement()
+	case token.THROW:
+		return p.parseThrowStatement()
 	default:
 		return p.parseExpressionStatement()
 	}
@@ -1099,4 +1103,64 @@ func (p *Parser) parseAssignmentExpression(left ast.Expression) ast.Expression {
 	exp.Value = p.parseExpression(LOWEST)
 
 	return exp
+}
+
+func (p *Parser) parseTryStatement() *ast.TryStatement {
+	stmt := &ast.TryStatement{Token: p.curToken}
+
+	if !p.expectPeek(token.LBRACE) {
+		return nil
+	}
+
+	stmt.Body = p.parseBlockStatement()
+
+	if p.peekToken.Type == token.CATCH {
+		p.nextToken() // consume catch
+
+		if !p.expectPeek(token.LPAREN) {
+			return nil
+		}
+
+		if !p.expectPeek(token.IDENT) {
+			return nil
+		}
+
+		stmt.CatchVar = p.curToken.Literal
+
+		if !p.expectPeek(token.RPAREN) {
+			return nil
+		}
+
+		if !p.expectPeek(token.LBRACE) {
+			return nil
+		}
+
+		stmt.Catch = p.parseBlockStatement()
+	}
+
+	if p.peekToken.Type == token.FINALLY {
+		p.nextToken() // consume finally
+
+		if !p.expectPeek(token.LBRACE) {
+			return nil
+		}
+
+		stmt.Finally = p.parseBlockStatement()
+	}
+
+	return stmt
+}
+
+func (p *Parser) parseThrowStatement() *ast.ThrowStatement {
+	stmt := &ast.ThrowStatement{Token: p.curToken}
+
+	p.nextToken()
+
+	stmt.Value = p.parseExpression(LOWEST)
+
+	if p.peekToken.Type == token.SEMICOLON {
+		p.nextToken()
+	}
+
+	return stmt
 }

@@ -1,0 +1,11 @@
+function main() {
+    print("Starting try-finally test...");
+
+    try {
+        print("Inside try block");
+    } finally {
+        print("Finally block executed");
+    }
+
+    print("After try-finally");
+}

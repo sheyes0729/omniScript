@@ -3253,6 +3253,53 @@ func (c *Compiler) Compile(node ast.Node) error {
 			c.stackType = TypeHost
 		}
 
+	case *ast.TryStatement:
+		c.emit("try")
+		// c.emit("do") // Legacy try does not use 'do'
+		
+		if err := c.Compile(node.Body); err != nil {
+			return err
+		}
+		
+		c.emit("catch $exception")
+		if node.Catch != nil {
+			// Stack has exception payload (i32)
+			index := c.current.NextLocalID
+			c.current.NextLocalID++
+			
+			c.current.Symbols[node.CatchVar] = Symbol{
+				Index: index,
+				Type: TypeInt, 
+				IsParam: false,
+				ShadowIndex: -1,
+			}
+			realIndex := index + c.current.ParamCount
+			c.emit(fmt.Sprintf("local.set %d", realIndex))
+			
+			if err := c.Compile(node.Catch); err != nil {
+				return err
+			}
+		} else {
+			c.emit("drop") 
+		}
+		
+		c.emit("end")
+		
+		if node.Finally != nil {
+			if err := c.Compile(node.Finally); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case *ast.ThrowStatement:
+		if err := c.Compile(node.Value); err != nil {
+			return err
+		}
+		c.emit("throw $exception")
+		c.stackType = TypeVoid
+		return nil
+
 	case *ast.PrefixExpression:
 		if err := c.Compile(node.Right); err != nil {
 			return err
@@ -4453,6 +4500,7 @@ func (c *Compiler) GenerateWAT() string {
 
 	out.WriteString("  (import \"env\" \"memory\" (memory 1 1000 shared))\n")
 	out.WriteString("  (export \"memory\" (memory 0))\n")
+	out.WriteString("  (tag $exception (param i32))\n")
 	if c.target == "wasi" {
 		// Reactor model: export _initialize, do NOT export _start
 		out.WriteString("  (export \"_initialize\" (func $noop))\n")
