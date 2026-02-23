@@ -1,3 +1,5 @@
+declare function print(s: string);
+
 function main() {
     print("Starting Atomic Test...");
 
@@ -23,17 +25,36 @@ function main() {
     std.atomic.store(arr, 1, 100);
     print("After store(100) to index 1: " + arr[1]);
     
-    // Test Wait/Notify (basic check, won't block here as no other thread)
+    // Test Atomic.and
+    std.atomic.store(arr, 2, 0b1100); // 12
+    let oldAnd = std.atomic.and(arr, 2, 0b1010); // 10
+    print("Atomic.and old: " + oldAnd + ", new: " + arr[2]); // Expected new: 8 (1000)
+
+    // Test Atomic.or
+    std.atomic.store(arr, 2, 0b1000); // 8
+    let oldOr = std.atomic.or(arr, 2, 0b0001); // 1
+    print("Atomic.or old: " + oldOr + ", new: " + arr[2]); // Expected new: 9 (1001)
+
+    // Test Atomic.xor
+    std.atomic.store(arr, 2, 0b1111); // 15
+    let oldXor = std.atomic.xor(arr, 2, 0b0011); // 3
+    print("Atomic.xor old: " + oldXor + ", new: " + arr[2]); // Expected new: 12 (1100)
+
+    // Test Atomic.xchg
+    std.atomic.store(arr, 2, 100);
+    let oldXchg = std.atomic.xchg(arr, 2, 200);
+    print("Atomic.xchg old: " + oldXchg + ", new: " + arr[2]); // Expected old: 100, new: 200
+
+    // Test Atomic.cmpxchg
+    std.atomic.store(arr, 2, 200);
+    let oldCmp = std.atomic.cmpxchg(arr, 2, 200, 300); // Success
+    print("Atomic.cmpxchg (success) old: " + oldCmp + ", new: " + arr[2]); // Expected old: 200, new: 300
+    
+    let oldCmpFail = std.atomic.cmpxchg(arr, 2, 200, 400); // Fail (current is 300)
+    print("Atomic.cmpxchg (fail) old: " + oldCmpFail + ", new: " + arr[2]); // Expected old: 300, new: 300
+
+    // Test Wait/Notify
     // wait(addr, expected, timeout) -> 0=ok, 1=not_equal, 2=timed_out
-    
-    // This should timeout because value IS 100
-    // But wait expects i64 timeout. We pass i32, compiler extends it.
-    // Timeout 0 means immediate check? No, timeout is ns.
-    // Let's use small timeout.
-    
-    // Note: wait only works on Shared Memory. OmniScript uses shared memory by default now.
-    // However, wait might fail if not on a valid atomic address.
-    // Let's try.
     
     let res = std.atomic.wait(arr, 1, 100, 1000); // 1ms timeout
     print("Wait result (should be 2/timeout): " + res);

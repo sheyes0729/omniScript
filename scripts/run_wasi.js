@@ -327,10 +327,13 @@ if (isMainThread) {
                 memory: memory,
                 thread_spawn: () => 0, // Workers can't spawn (for now)
                 print: (ptr) => {
-                    console.log(readString(memory, ptr));
+                    // console.log(readString(memory, ptr));
+                    fs.writeSync(1, readString(memory, ptr) + "\n");
                 },
                 print_int: (val) => {
-                    console.log("[Worker PrintInt]", val);
+                    // console.log("[Worker PrintInt]", val);
+                    // process.stdout.write(`[Worker PrintInt] ${val}\n`);
+                    fs.writeSync(1, `${val}\n`);
                 },
                 host_to_int: (val) => val,
                 host_get_global: (namePtr) => {
@@ -383,7 +386,8 @@ if (isMainThread) {
             }
         }
         
-        console.log(`[Worker] Running ${funcName} with args:`, args);
+        // process.stdout.write(`[Worker] Running ${funcName} with args: ${args}\n`);
+        // process.stdout.write(`[Worker] Func type: ${typeof func}\n`);
         try {
             func(...args);
         } catch (e) {

@@ -141,6 +141,9 @@ const stdLibWAT = `
   (local $cb i32)
   (local $buf i32)
   
+  ;; local.get $func_id
+  ;; call $print_int
+
   call $get_queue_cb
   local.tee $cb
   i32.eqz

@@ -23,7 +23,7 @@ The core philosophy of OmniScript is "One Language, Two Worlds":
 
 ## Development Roadmap & Status
 
-### 🚀 Current Overall Progress: ~55% - 60%
+### 🚀 Current Overall Progress: ~60% - 65%
 
 Although core language features (type system, classes, generics, garbage collection, modules) are quite mature, there is still a significant gap before "full-stack production readiness".
 
@@ -35,15 +35,15 @@ Although core language features (type system, classes, generics, garbage collect
     *   **Limitations**: Primitive error handling.
 
 *   **Scenario B: High-performance backend services (Node.js/Go replacement)**
-    *   **Status**: 🚧 **Not Ready (Progress ~65%)**
-    *   **Done**: `std/http`, `std/net`, Module System (`import/export`), Error Handling (`try/catch`).
-    *   **Missing**: Advanced Types (Union Types).
+    *   **Status**: 🚧 **Not Ready (Progress ~70%)**
+    *   **Done**: `std/http`, `std/net`, Module System (`import/export`), Error Handling (`try/catch`), Advanced Types (Union Types).
+    *   **Missing**: Full Database Drivers.
 
 *   **Scenario C: Frontend Web Apps (TypeScript replacement)**
-    *   **Status**: ⚠️ **Partial Ready (Progress ~30%)**
+    *   **Status**: ⚠️ **Partial Ready (Progress ~40%)**
     *   **Goal**: Pure TypeScript-like experience without built-in UI frameworks (React/Vue). UI frameworks will be developed separately.
-    *   **Done**: Basic DOM Access via Host Interop (`document.getElementById`, events).
-    *   **Missing**: Event System (callbacks), Automatic Web Worker offloading.
+    *   **Done**: Basic DOM Access via Host Interop (`document.getElementById`, events), **Task Scheduler** (Auto-Parallelism Basic).
+    *   **Missing**: Event System (callbacks), Full Compute Density Analysis.
 
 ### �📅 Phase 1: Backend Foundation (The "Node.js Killer" Start)
 **Goal**: Enable OmniScript to run as a standalone backend application, interacting with the OS.
@@ -71,7 +71,7 @@ Although core language features (type system, classes, generics, garbage collect
 - [x] **Compile-Time Checks**: Strict validation of function arguments (count).
 - [x] **Generics**: Implement `<T>` for functions and classes (e.g., `Array<T>`).
 - [x] **Error Handling**: Implement `try/catch/finally` and `throw` (WASM Exceptions).
-- [ ] **Advanced Types**: Union types (`int | string`).
+- [x] **Advanced Types**: Union types (`int | string`) (Partial Support).
 
 ### 📅 Phase 3: Concurrency, Memory & Performance (The "Go" Power)
 **Goal**: Unlock multi-core performance, automatic task distribution, and memory safety.
@@ -83,7 +83,7 @@ Although core language features (type system, classes, generics, garbage collect
     - [x] **Atomics**: Implement `Atomics` intrinsics for thread-safe operations.
     - [x] **`spawn` keyword**: Lightweight thread creation (allocates new Stack, shares Heap).
 - [ ] **Auto-Parallelism**:
-    - [ ] **Task Scheduler**: Runtime logic to distribute tasks to Web Workers (Frontend) or System Threads (Backend).
+    - [x] **Task Scheduler**: Runtime logic to distribute tasks to Web Workers (Frontend) or System Threads (Backend).
     - [ ] **Compute Density Analysis**: Compiler pass to identify "heavy" functions for auto-offloading.
 
 ### 📅 Phase 4: Standard Library & Ecosystem
