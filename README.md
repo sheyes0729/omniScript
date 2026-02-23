@@ -23,7 +23,26 @@ The core philosophy of OmniScript is "One Language, Two Worlds":
 
 ## Development Roadmap & Status
 
-### 📅 Phase 1: Backend Foundation (The "Node.js Killer" Start)
+### � Current Overall Progress: ~40% - 45%
+
+Although core language features (type system, classes, generics, garbage collection) are quite mature, there is still a significant gap before "full-stack production readiness".
+
+#### When can it be used for production?
+
+*   **Scenario A: Simple CLI tools, automation scripts, algorithm verification**
+    *   **Status**: ✅ **Ready (Alpha)**
+    *   **Capabilities**: File system (`std/fs`), path manipulation (`std/path`), process control (`std/os`), complex data structures (`Map`, `Array`, `Class`, `Generic`), and concurrency (`spawn`).
+    *   **Limitations**: Single-file only (no module system), primitive error handling.
+
+*   **Scenario B: High-performance backend services (Node.js/Go replacement)**
+    *   **Status**: 🚧 **Not Ready (Progress ~30%)**
+    *   **Missing**: `std/http`, `std/net`, Module System (`import/export`), Error Handling (`try/catch`).
+
+*   **Scenario C: Full-stack Web Apps (TypeScript + React/Vue replacement)**
+    *   **Status**: ❌ **Not Ready (Progress ~15%)**
+    *   **Missing**: DOM APIs, Event System, Automatic Web Worker offloading.
+
+### �📅 Phase 1: Backend Foundation (The "Node.js Killer" Start)
 **Goal**: Enable OmniScript to run as a standalone backend application, interacting with the OS.
 
 - [x] **Multi-Target Compiler**: Support `-target=wasi` (Backend) and `-target=browser` (Frontend).
