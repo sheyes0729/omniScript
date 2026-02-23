@@ -1,5 +1,7 @@
 # OmniScript
 
+[中文](./README.zh-CN.md)
+
 OmniScript is a unified programming language designed to bridge the gap between high-performance backend systems and modern frontend web applications. It aims to combine the ease of use of TypeScript with the raw performance and concurrency model of Go, all within a single language ecosystem.
 
 ## Vision
@@ -35,6 +37,7 @@ The core philosophy of OmniScript is "One Language, Two Worlds":
   - [x] Arrays: Dynamic arrays with bounds checking
   - [x] Maps/Objects: Hash maps, string keys, index access
   - [x] Classes: Properties, methods, single inheritance, polymorphism
+  - [x] Generics: `Array<T>`, `Map<K,V>` support
 
 - **Memory Management**:
   - [x] Memory Allocator (`malloc`/`free`)
@@ -56,7 +59,7 @@ The core philosophy of OmniScript is "One Language, Two Worlds":
 - [ ] **Floats**: `float`/`f64` support.
 - [ ] **Modules**: `import`/`export` system.
 - [ ] **Error Handling**: `try`/`catch`/`throw`.
-- [ ] **Generics**: Type parameters for flexible data structures.
+- [x] **Generics**: Type parameters for flexible data structures (`Array<T>`, `Map<K,V>`).
 
 ## Getting Started
 
