@@ -1,0 +1,29 @@
+
+declare function print(s: string): void;
+declare function print_int(i: int): void;
+
+function task(id: int) {
+    print("Task started");
+    print_int(id);
+    let sum = 0;
+    let i = 0;
+    while (i < 1000) {
+        sum = sum + 1;
+        i = i + 1;
+    }
+    print("Task finished");
+    print_int(id);
+}
+
+function main() {
+    print("Main started");
+    
+    let i = 0;
+    while (i < 10) {
+        spawn task(i);
+        i = i + 1;
+    }
+    
+    print("Main finished spawning");
+    // Main thread will exit, but host runner will wait 2s for workers
+}

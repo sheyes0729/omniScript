@@ -1,0 +1,43 @@
+function main() {
+    print("Starting Atomic Test...");
+
+    // Create an array for shared data
+    let arr = [0, 0, 0];
+    
+    // Test Atomic.add
+    // arr[0] should become 10
+    let old = std.atomic.add(arr, 0, 10);
+    print("Atomic.add old value: " + old);
+    print("arr[0] is now: " + arr[0]);
+    
+    // Test Atomic.load
+    let val = std.atomic.load(arr, 0);
+    print("Atomic.load value: " + val);
+    
+    // Test Atomic.sub
+    // arr[0] should become 5
+    std.atomic.sub(arr, 0, 5);
+    print("After sub(5), arr[0]: " + arr[0]);
+    
+    // Test Atomic.store
+    std.atomic.store(arr, 1, 100);
+    print("After store(100) to index 1: " + arr[1]);
+    
+    // Test Wait/Notify (basic check, won't block here as no other thread)
+    // wait(addr, expected, timeout) -> 0=ok, 1=not_equal, 2=timed_out
+    
+    // This should timeout because value IS 100
+    // But wait expects i64 timeout. We pass i32, compiler extends it.
+    // Timeout 0 means immediate check? No, timeout is ns.
+    // Let's use small timeout.
+    
+    // Note: wait only works on Shared Memory. OmniScript uses shared memory by default now.
+    // However, wait might fail if not on a valid atomic address.
+    // Let's try.
+    
+    let res = std.atomic.wait(arr, 1, 100, 1000); // 1ms timeout
+    print("Wait result (should be 2/timeout): " + res);
+    
+    let res2 = std.atomic.wait(arr, 1, 99, 1000); // Expected 99, but is 100 -> should be 1 (not-equal)
+    print("Wait result (should be 1/not-equal): " + res2);
+}

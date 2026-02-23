@@ -7,6 +7,8 @@ const WabtModule = require('wabt');
 const { WASI } = require('wasi');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 
+const activeWorkers = [];
+
 // Handle Manager for Host Objects
 class HandleManager {
     constructor() {
@@ -116,6 +118,8 @@ if (isMainThread) {
                         ptr++;
                     }
                     
+                    // console.log(`[Host] Spawning thread for function: ${name}`);
+
                     // Allocate stack for new thread (1MB)
                     const int32View = new Int32Array(sharedMemory.buffer);
                     const heapPtrIndex = 255; // 1020 / 4
@@ -136,7 +140,9 @@ if (isMainThread) {
                     worker.on('error', (err) => console.error(`[Worker Error]`, err));
                     // worker.on('exit', (code) => console.log(`[Worker Exit] code ${code}`));
                     
-                    return 1; // Thread ID (dummy)
+                    activeWorkers.push(worker);
+                    // console.log("Spawned worker", worker.threadId);
+                    return 1;
                 },
                 host_to_int: (val) => val,
                 // Add other required imports if missing from compilation
@@ -275,6 +281,17 @@ if (isMainThread) {
          } else {
              // console.log("No entry point found.");
          }
+         
+         // Wait a bit for workers to finish tasks, then exit
+         // In a real app, we might wait for explicit shutdown.
+         // For tests, we assume main spawns and we wait a bit.
+         setTimeout(() => {
+             console.log("Terminating workers... count:", activeWorkers.length);
+             for (const w of activeWorkers) {
+                 w.terminate();
+             }
+             process.exit(0);
+         }, 2000); // Wait 2 seconds
     }
 
     run().catch(err => {
@@ -311,6 +328,9 @@ if (isMainThread) {
                 thread_spawn: () => 0, // Workers can't spawn (for now)
                 print: (ptr) => {
                     console.log(readString(memory, ptr));
+                },
+                print_int: (val) => {
+                    console.log("[Worker PrintInt]", val);
                 },
                 host_to_int: (val) => val,
                 host_get_global: (namePtr) => {
@@ -351,17 +371,24 @@ if (isMainThread) {
         // data[i] = value
         
         const memView = new DataView(memory.buffer);
-        const len = memView.getInt32(argsPtr, true); // Little endian
-        const dataPtr = memView.getInt32(argsPtr + 8, true);
+        let args = [];
         
-        const args = [];
-        for (let i = 0; i < len; i++) {
-            const val = memView.getInt32(dataPtr + i * 4, true);
-            args.push(val);
+        if (argsPtr !== 0) {
+            const len = memView.getInt32(argsPtr, true); // Little endian
+            const dataPtr = memView.getInt32(argsPtr + 8, true);
+            
+            for (let i = 0; i < len; i++) {
+                const val = memView.getInt32(dataPtr + i * 4, true);
+                args.push(val);
+            }
         }
         
-        // console.log(`[Worker] Running ${funcName} with args:`, args);
-        func(...args);
+        console.log(`[Worker] Running ${funcName} with args:`, args);
+        try {
+            func(...args);
+        } catch (e) {
+            console.error(`[Worker] Error running ${funcName}:`, e);
+        }
     }
     
     workerRun().catch(err => console.error(err));

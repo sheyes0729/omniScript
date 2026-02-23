@@ -38,7 +38,425 @@ const (
 	TypeID_Union   = 7
 )
 
+
+
 const stdLibWAT = `
+(type $task_sig (func (param i32)))
+
+;; --- Task Scheduler ---
+(global $worker_started (mut i32) (i32.const 0))
+
+(func $get_queue_cb (result i32)
+  i32.const 1016
+  i32.load
+)
+
+(func $scheduler_init
+  (local $cb i32)
+  (local $buf i32)
+  
+  call $get_queue_cb
+  if
+    return
+  end
+
+  ;; Allocate Control Block (20 bytes)
+  ;; 0: Lock
+  ;; 4: Count (Wait Address)
+  ;; 8: Head
+  ;; 12: Tail
+  ;; 16: Buffer Ptr
+  i32.const 20
+  i32.const 0
+  call $malloc
+  local.set $cb
+  
+  ;; Store CB ptr at 1016
+  i32.const 1016
+  local.get $cb
+  i32.store
+  
+  ;; Allocate Buffer (1024 * 8 = 8192 bytes)
+  i32.const 8192
+  i32.const 0
+  call $malloc
+  local.set $buf
+  
+  ;; Store Buffer ptr in CB
+  local.get $cb
+  i32.const 16
+  i32.add
+  local.get $buf
+  i32.store
+  
+  ;; Initialize CB to 0
+  local.get $cb
+  i32.const 0
+  i32.store ;; Lock
+  local.get $cb
+  i32.const 4
+  i32.add
+  i32.const 0
+  i32.store ;; Count
+  local.get $cb
+  i32.const 8
+  i32.add
+  i32.const 0
+  i32.store ;; Head
+  local.get $cb
+  i32.const 12
+  i32.add
+  i32.const 0
+  i32.store ;; Tail
+)
+
+(func $lock_queue
+  (local $cb i32)
+  call $get_queue_cb
+  local.set $cb
+  
+  (loop $retry
+    local.get $cb
+    i32.const 0
+    i32.const 1
+    i32.atomic.rmw.cmpxchg
+    i32.eqz
+    if
+      return ;; Acquired (old value was 0)
+    end
+    br $retry
+  )
+)
+
+(func $unlock_queue
+  call $get_queue_cb
+  i32.const 0
+  i32.atomic.store
+)
+
+(func $scheduler_submit (param $func_id i32) (param $args_ptr i32)
+  (local $tail i32)
+  (local $slot i32)
+  (local $count i32)
+  (local $cb i32)
+  (local $buf i32)
+  
+  call $get_queue_cb
+  local.tee $cb
+  i32.eqz
+  if
+    call $scheduler_init
+    call $get_queue_cb
+    local.set $cb
+  end
+  
+  call $lock_queue
+  
+  ;; Check count
+  local.get $cb
+  i32.const 4
+  i32.add
+  i32.load
+  local.set $count
+  
+  local.get $count
+  i32.const 1024
+  i32.ge_s
+  if
+    call $unlock_queue
+    return ;; Full
+  end
+  
+  ;; Get Tail
+  local.get $cb
+  i32.const 12
+  i32.add
+  i32.load
+  local.set $tail
+  
+  ;; Get Buffer
+  local.get $cb
+  i32.const 16
+  i32.add
+  i32.load
+  local.set $buf
+  
+  ;; Store task at buffer[tail]
+  local.get $buf
+  local.get $tail
+  i32.const 8
+  i32.mul
+  i32.add
+  local.set $slot
+  
+  local.get $slot
+  local.get $func_id
+  i32.store
+  
+  local.get $slot
+  i32.const 4
+  i32.add
+  local.get $args_ptr
+  i32.store
+  
+  ;; Update Tail
+  local.get $cb
+  i32.const 12
+  i32.add
+  local.get $tail
+  i32.const 1
+  i32.add
+  i32.const 1023
+  i32.and
+  i32.store
+  
+  ;; Update Count
+  local.get $cb
+  i32.const 4
+  i32.add
+  local.get $count
+  i32.const 1
+  i32.add
+  i32.store
+  
+  call $unlock_queue
+  
+  ;; Notify workers (Count address)
+  local.get $cb
+  i32.const 4
+  i32.add
+  i32.const 1
+  memory.atomic.notify
+  drop
+)
+
+(func $worker_entry
+  (local $head i32)
+  (local $slot i32)
+  (local $func_id i32)
+  (local $args_ptr i32)
+  (local $count i32)
+  (local $cb i32)
+  (local $buf i32)
+  
+  ;; i32.const 777
+  ;; call $print_int
+
+  ;; Ensure Init (in case worker starts before any submit)
+  call $get_queue_cb
+  local.tee $cb
+  i32.eqz
+  if
+    call $scheduler_init
+    call $get_queue_cb
+    local.set $cb
+  end
+  
+  (loop $loop
+    ;; Debug: Worker loop start
+    ;; i32.const 999
+    ;; call $print_int
+
+    call $lock_queue
+    
+    local.get $cb
+    i32.const 4
+    i32.add
+    i32.load
+    local.set $count
+    
+    local.get $count
+    i32.const 0
+    i32.gt_s
+    if
+      ;; Debug: Dequeue
+      ;; i32.const 888
+      ;; call $print_int
+
+      ;; Dequeue
+      local.get $cb
+      i32.const 8
+      i32.add
+      i32.load
+      local.set $head
+      
+      local.get $cb
+      i32.const 16
+      i32.add
+      i32.load
+      local.set $buf
+      
+      local.get $buf
+      local.get $head
+      i32.const 8
+      i32.mul
+      i32.add
+      local.set $slot
+      
+      local.get $slot
+      i32.load
+      local.set $func_id
+      
+      local.get $slot
+      i32.const 4
+      i32.add
+      i32.load
+      local.set $args_ptr
+      
+      ;; Update Head
+      local.get $cb
+      i32.const 8
+      i32.add
+      local.get $head
+      i32.const 1
+      i32.add
+      i32.const 1023
+      i32.and
+      i32.store
+      
+      ;; Decrement Count
+      local.get $cb
+      i32.const 4
+      i32.add
+      local.get $count
+      i32.const 1
+      i32.sub
+      i32.store
+      
+      call $unlock_queue
+      
+      ;; Execute
+      local.get $func_id
+      local.get $args_ptr
+      call $dispatch_task
+      
+      br $loop
+    end
+    
+    call $unlock_queue
+    
+    ;; Wait
+    local.get $cb
+    i32.const 4
+    i32.add
+    i32.const 0
+    i32.const -1
+    i64.extend_i32_s
+    memory.atomic.wait32
+    drop
+    
+    br $loop
+  )
+)
+(export "worker_entry" (func $worker_entry))
+
+(func $start_workers (param $num i32)
+  (local $i i32)
+  (local $slot i32)
+  
+  global.get $worker_started
+  if
+    return
+  end
+  i32.const 1
+  global.set $worker_started
+  
+  call $scheduler_init
+  
+  i32.const 0
+  local.set $i
+  (loop $start_loop
+    local.get $i
+    local.get $num
+    i32.ge_s
+    if
+      return
+    end
+    
+    ;; Allocate string "worker_entry" (13 bytes)
+    i32.const 13
+    i32.const 0
+    call $malloc
+    local.set $slot
+    
+    ;; "worker_entry"
+    local.get $slot
+    i32.const 119
+    i32.store8 ;; w
+    local.get $slot
+    i32.const 1
+    i32.add
+    i32.const 111
+    i32.store8 ;; o
+    local.get $slot
+    i32.const 2
+    i32.add
+    i32.const 114
+    i32.store8 ;; r
+    local.get $slot
+    i32.const 3
+    i32.add
+    i32.const 107
+    i32.store8 ;; k
+    local.get $slot
+    i32.const 4
+    i32.add
+    i32.const 101
+    i32.store8 ;; e
+    local.get $slot
+    i32.const 5
+    i32.add
+    i32.const 114
+    i32.store8 ;; r
+    local.get $slot
+    i32.const 6
+    i32.add
+    i32.const 95
+    i32.store8 ;; _
+    local.get $slot
+    i32.const 7
+    i32.add
+    i32.const 101
+    i32.store8 ;; e
+    local.get $slot
+    i32.const 8
+    i32.add
+    i32.const 110
+    i32.store8 ;; n
+    local.get $slot
+    i32.const 9
+    i32.add
+    i32.const 116
+    i32.store8 ;; t
+    local.get $slot
+    i32.const 10
+    i32.add
+    i32.const 114
+    i32.store8 ;; r
+    local.get $slot
+    i32.const 11
+    i32.add
+    i32.const 121
+    i32.store8 ;; y
+    local.get $slot
+    i32.const 12
+    i32.add
+    i32.const 0
+    i32.store8 ;; \0
+    
+    local.get $slot
+    i32.const 0
+    call $thread_spawn
+    drop
+    
+    local.get $i
+    i32.const 1
+    i32.add
+    local.set $i
+    br $start_loop
+  )
+)
+
 ;; --- Built-in Memory & String Library (Thread-Safe) ---
 ;; Heap Pointer is at offset 1020 (i32)
 ;; Shadow Stack Pointer is global per thread
@@ -448,310 +866,17 @@ const stdLibWAT = `
   local.get $arr
 )
 
-(func $array_push (param $arr i32) (param $val i32)
-  (local $len i32)
-  (local $cap i32)
-  (local $data i32)
-  (local $new_cap i32)
-  (local $new_data i32)
-  (local $i i32)
-  
-  ;; Get length
-  local.get $arr
-  i32.load
-  local.set $len
-  
-  ;; Get capacity
-  local.get $arr
-  i32.const 4
-  i32.add
-  i32.load
-  local.set $cap
-  
-  ;; Get data ptr
-  local.get $arr
-  i32.const 8
-  i32.add
-  i32.load
-  local.set $data
-  
-  ;; Check capacity
-  local.get $len
-  local.get $cap
-  i32.ge_u
-  if
-    ;; Resize: double capacity
-    local.get $cap
-    i32.const 2
-    i32.mul
-    local.set $new_cap
-    
-    ;; Cap at least 4
-    local.get $new_cap
-    i32.const 4
-    i32.lt_u
-    if
-      i32.const 4
-      local.set $new_cap
-    end
-    
-    ;; Allocate new data
-    local.get $new_cap
-    i32.const 4
-    i32.mul
-    i32.const 20 ;; TypeID 20
-    call $malloc
-    local.set $new_data
-    
-    ;; Copy old data
-    i32.const 0
-    local.set $i
-    (block $done_copy
-      (loop $copy
-        local.get $i
-        local.get $len
-        i32.ge_u
-        br_if $done_copy
-        
-        ;; new_data[i] = old_data[i]
-        local.get $new_data
-        local.get $i
-        i32.const 4
-        i32.mul
-        i32.add
-        
-        local.get $data
-        local.get $i
-        i32.const 4
-        i32.mul
-        i32.add
-        i32.load
-        
-        i32.store
-        
-        local.get $i
-        i32.const 1
-        i32.add
-        local.set $i
-        br $copy
-      )
-    )
-    
-    ;; Update array struct
-    local.get $arr
-    i32.const 4
-    i32.add
-    local.get $new_cap
-    i32.store
-    
-    local.get $arr
-    i32.const 8
-    i32.add
-    local.get $new_data
-    i32.store
-    
-    ;; Update locals
-    local.get $new_data
-    local.set $data
-  end
-  
-  ;; Store value
-  local.get $data
-  local.get $len
-  i32.const 4
-  i32.mul
-  i32.add
-  local.get $val
-  i32.store
-  
-  ;; Increment length
-  local.get $arr
-  local.get $len
-  i32.const 1
-  i32.add
-  i32.store
-)
 
-(func $array_get (param $arr i32) (param $idx i32) (result i32)
-  (local $data i32)
-  (local $len i32)
-  
-  ;; Get length
-  local.get $arr
-  i32.load
-  local.set $len
-  
-  ;; Bounds check (TODO: Trap/Panic if out of bounds)
-  local.get $idx
-  local.get $len
-  i32.ge_u
-  if
-    i32.const 0
-    return
-  end
 
-  ;; Get data ptr
-  local.get $arr
-  i32.const 8
-  i32.add
-  i32.load
-  local.set $data
-  
-  ;; Load value
-  local.get $data
-  local.get $idx
-  i32.const 4
-  i32.mul
-  i32.add
-  i32.load
-)
 
-(func $array_set (param $arr i32) (param $idx i32) (param $val i32)
-  (local $data i32)
-  (local $len i32)
-  
-  ;; Get length
-  local.get $arr
-  i32.load
-  local.set $len
-  
-  ;; Bounds check
-  local.get $idx
-  local.get $len
-  i32.ge_u
-  if
-    return
-  end
 
-  ;; Get data ptr
-  local.get $arr
-  i32.const 8
-  i32.add
-  i32.load
-  local.set $data
-  
-  ;; Store value
-  local.get $data
-  local.get $idx
-  i32.const 4
-  i32.mul
-  i32.add
-  local.get $val
-  i32.store
-)
 
-(func $array_length (param $arr i32) (result i32)
-  local.get $arr
-  i32.load
-)
 
-(func $string_equals (param $s1 i32) (param $s2 i32) (result i32)
-  (local $len1 i32)
-  (local $len2 i32)
-  (local $i i32)
-  
-  local.get $s1
-  call $strlen
-  local.set $len1
-  
-  local.get $s2
-  call $strlen
-  local.set $len2
-  
-  local.get $len1
-  local.get $len2
-  i32.ne
-  if
-    i32.const 0
-    return
-  end
-  
-  i32.const 0
-  local.set $i
-  
-  (block $done
-    (loop $loop
-      local.get $i
-      local.get $len1
-      i32.ge_u
-      br_if $done
-      
-      local.get $s1
-      local.get $i
-      i32.add
-      i32.load8_u
-      
-      local.get $s2
-      local.get $i
-      i32.add
-      i32.load8_u
-      
-      i32.ne
-      if
-        i32.const 0
-        return
-      end
-      
-      local.get $i
-      i32.const 1
-      i32.add
-      local.set $i
-      br $loop
-    )
-  )
-  i32.const 1
-)
 
-(func $hash_string (param $str i32) (result i32)
-  ;; djb2 hash
-  (local $hash i32)
-  (local $c i32)
-  (local $i i32)
-  (local $len i32)
-  
-  i32.const 5381
-  local.set $hash
-  
-  local.get $str
-  call $strlen
-  local.set $len
-  
-  i32.const 0
-  local.set $i
-  
-  (block $done
-    (loop $loop
-      local.get $i
-      local.get $len
-      i32.ge_u
-      br_if $done
-      
-      local.get $str
-      local.get $i
-      i32.add
-      i32.load8_u
-      local.set $c
-      
-      ;; hash = ((hash << 5) + hash) + c
-      local.get $hash
-      i32.const 5
-      i32.shl
-      local.get $hash
-      i32.add
-      local.get $c
-      i32.add
-      local.set $hash
-      
-      local.get $i
-      i32.const 1
-      i32.add
-      local.set $i
-      br $loop
-    )
-  )
-  
-  local.get $hash
-)
+
+
+
+
 
 (func $typeof (param $val i32) (result i32)
   ;; This function implements runtime check for Union types (boxed).
@@ -951,78 +1076,7 @@ const stdLibWAT = `
   i32.store
 )
 
-(func $map_get (param $map i32) (param $key i32) (result i32)
-  (local $hash i32)
-  (local $cap i32)
-  (local $buckets i32)
-  (local $idx i32)
-  (local $entry i32)
-  
-  ;; Calculate hash
-  local.get $key
-  call $hash_string
-  local.set $hash
-  
-  ;; Get capacity
-  local.get $map
-  i32.load
-  local.set $cap
-  
-  ;; Get buckets
-  local.get $map
-  i32.const 8
-  i32.add
-  i32.load
-  local.set $buckets
-  
-  ;; Index
-  local.get $hash
-  local.get $cap
-  i32.const 1
-  i32.sub
-  i32.and
-  local.set $idx
-  
-  ;; Walk
-  local.get $buckets
-  local.get $idx
-  i32.const 4
-  i32.mul
-  i32.add
-  i32.load
-  local.set $entry
-  
-  (block $not_found
-    (loop $search
-      local.get $entry
-      i32.eqz
-      br_if $not_found
-      
-      local.get $entry
-      i32.load
-      local.get $key
-      call $string_equals
-      if
-        ;; Found
-        local.get $entry
-        i32.const 4
-        i32.add
-        i32.load
-        return
-      end
-      
-      local.get $entry
-      i32.const 8
-      i32.add
-      i32.load
-      local.set $entry
-      br $search
-    )
-  )
-  
-  ;; Not found
-  i32.const 0
-)
+
 
 (func $itos (param $val i32) (result i32)
   (local $ptr i32)
@@ -1560,10 +1614,11 @@ const wasiEnvWAT = `
 
   local.get $map
 )
+
 `
 
-
-/* (func $string_charCodeAt (param $str i32) (param $index i32) (result i32)
+const stdLibExtraWAT = `
+(func $string_charCodeAt (param $str i32) (param $index i32) (result i32)
   ;; Load byte at str + index
   local.get $str
   local.get $index
@@ -1571,45 +1626,7 @@ const wasiEnvWAT = `
   i32.load8_u
 )
 
-(func $array_new (param $capacity i32) (result i32)
-  (local $arr i32)
-  (local $data i32)
-  
-  ;; Allocate Array struct (12 bytes: len, cap, data)
-  i32.const 12
-  i32.const 1 ;; TypeID 1 (Array)
-  call $malloc
-  local.set $arr
-  
-  ;; Set length = 0
-  local.get $arr
-  i32.const 0
-  i32.store
-  
-  ;; Set capacity
-  local.get $arr
-  i32.const 4
-  i32.add
-  local.get $capacity
-  i32.store
-  
-  ;; Allocate data buffer
-  local.get $capacity
-  i32.const 4
-  i32.mul
-  i32.const 20 ;; TypeID 20 (ArrayData)
-  call $malloc
-  local.set $data
-  
-  ;; Set data pointer
-  local.get $arr
-  i32.const 8
-  i32.add
-  local.get $data
-  i32.store
-  
-  local.get $arr
-)
+
 
 (func $array_push (param $arr i32) (param $val i32)
   (local $len i32)
@@ -1916,202 +1933,9 @@ const wasiEnvWAT = `
   local.get $hash
 )
 
-(func $map_new (result i32)
-  (local $map i32)
-  (local $buckets i32)
-  (local $i i32)
-  
-  ;; Allocate Map (12 bytes: capacity, count, buckets)
-  i32.const 12
-  i32.const 2 ;; TypeID 2 (Map)
-  call $malloc
-  local.set $map
-  
-  ;; Set capacity = 16
-  local.get $map
-  i32.const 16
-  i32.store
-  
-  ;; Set count = 0
-  local.get $map
-  i32.const 4
-  i32.add
-  i32.const 0
-  i32.store
-  
-  ;; Allocate buckets (16 * 4 bytes)
-  i32.const 64
-  i32.const 21 ;; TypeID 21 (MapBuckets)
-  call $malloc
-  local.set $buckets
-  
-  ;; Initialize buckets to 0 (malloc might not zero?)
-  ;; Actually, malloc reuses memory, so we MUST zero.
-  ;; For now, assume we implement memset or loop.
-  ;; Let's zero it.
-  i32.const 0
-  local.set $i
-  (block $done_zero
-    (loop $zero
-      local.get $i
-      i32.const 64
-      i32.ge_u
-      br_if $done_zero
-      
-      local.get $buckets
-      local.get $i
-      i32.add
-      i32.const 0
-      i32.store
-      
-      local.get $i
-      i32.const 4
-      i32.add
-      local.set $i
-      br $zero
-    )
-  )
-  
-  ;; Set buckets ptr
-  local.get $map
-  i32.const 8
-  i32.add
-  local.get $buckets
-  i32.store
-  
-  local.get $map
-)
 
-(func $map_set (param $map i32) (param $key i32) (param $val i32)
-  (local $hash i32)
-  (local $cap i32)
-  (local $buckets i32)
-  (local $idx i32)
-  (local $entry i32)
-  (local $prev i32)
-  
-  ;; Calculate hash
-  local.get $key
-  call $hash_string
-  local.set $hash
-  
-  ;; Get capacity
-  local.get $map
-  i32.load
-  local.set $cap
-  
-  ;; Get buckets
-  local.get $map
-  i32.const 8
-  i32.add
-  i32.load
-  local.set $buckets
-  
-  ;; Index = hash % cap
-  ;; Since cap is power of 2 (16), hash & (cap-1)
-  local.get $hash
-  local.get $cap
-  i32.const 1
-  i32.sub
-  i32.and
-  local.set $idx
-  
-  ;; Walk linked list at buckets[idx]
-  local.get $buckets
-  local.get $idx
-  i32.const 4
-  i32.mul
-  i32.add
-  i32.load
-  local.set $entry
-  
-  (block $found
-    (loop $search
-      local.get $entry
-      i32.eqz
-      br_if $found ;; Not found, create new
-      
-      ;; Check key
-      local.get $entry
-      i32.load ;; key is at offset 0
-      local.get $key
-      call $string_equals
-      if
-        ;; Found! Update value
-        local.get $entry
-        i32.const 4
-        i32.add
-        local.get $val
-        i32.store
-        return
-      end
-      
-      local.get $entry
-      i32.const 8
-      i32.add
-      i32.load ;; next is at offset 8
-      local.set $entry
-      br $search
-    )
-  )
-  
-  ;; Create new entry (12 bytes: key, value, next)
-  i32.const 12
-  i32.const 22 ;; TypeID 22 (MapEntry)
-  call $malloc
-  local.set $entry
-  
-  ;; Set key
-  local.get $entry
-  local.get $key
-  i32.store
-  
-  ;; Set value
-  local.get $entry
-  i32.const 4
-  i32.add
-  local.get $val
-  i32.store
-  
-  ;; Set next = buckets[idx]
-  local.get $entry
-  i32.const 8
-  i32.add
-  
-  local.get $buckets
-  local.get $idx
-  i32.const 4
-  i32.mul
-  i32.add
-  i32.load
-  
-  i32.store
-  
-  ;; Update buckets[idx] = entry
-  local.get $buckets
-  local.get $idx
-  i32.const 4
-  i32.mul
-  i32.add
-  local.get $entry
-  i32.store
-  
-  ;; Increment count
-  local.get $map
-  i32.const 4
-  i32.add
-  
-  local.get $map
-  i32.const 4
-  i32.add
-  i32.load
-  i32.const 1
-  i32.add
-  
-  i32.store
-  
-  ;; TODO: Resize if load factor too high
-)
+
+
 
 (func $map_get (param $map i32) (param $key i32) (result i32)
   (local $hash i32)
@@ -2335,7 +2159,7 @@ const wasiEnvWAT = `
   
   local.get $ptr
 )
-*/
+`
 
 type Symbol struct {
 	Index   int
@@ -2390,6 +2214,7 @@ func NewFunctionScope(name string) *FunctionScope {
 
 type FunctionSignature struct {
 	ParamTypes []DataType
+	ReturnType DataType
 }
 
 // Compiler converts AST to WAT (WebAssembly Text Format)
@@ -2419,6 +2244,10 @@ type Compiler struct {
 	currentModule *ModuleScope
 	loadedModules map[string]*ModuleScope // Path -> Scope (with Exports)
 	baseDir       string                  // Base directory for resolving imports
+	
+	// Task Scheduler
+	funcIDs       map[string]int          // Function Name -> Unique ID (for Scheduler)
+	nextFuncID    int
 }
 
 func New(target string) *Compiler {
@@ -2438,6 +2267,8 @@ func New(target string) *Compiler {
 		loadedModules:  make(map[string]*ModuleScope),
 		moduleStack:    []*ModuleScope{},
 		baseDir:        ".", // Default to current directory
+		funcIDs:        make(map[string]int),
+		nextFuncID:     1, // 0 reserved
 	}
 	
 	// Create main module scope
@@ -2739,9 +2570,18 @@ func (c *Compiler) Compile(node ast.Node) error {
 						t := c.resolveType(p.Type)
 						sig.ParamTypes = append(sig.ParamTypes, t)
 					}
+					sig.ReturnType = c.resolveType(fn.ReturnType)
+					if fn.ReturnType == "" {
+						sig.ReturnType = TypeVoid
+					}
+					
 					// Use prefixed name
 					mangledName := c.currentModule.Prefix + fn.Name
 					c.definedFuncs[mangledName] = sig
+					
+					// Assign ID for Scheduler
+					c.funcIDs[mangledName] = c.nextFuncID
+					c.nextFuncID++
 					
 					registerExport(stmt, s)
 				}
@@ -2902,19 +2742,16 @@ func (c *Compiler) Compile(node ast.Node) error {
 			c.emit("call $array_push")
 		}
 		
-		// 2. Function Name
-		offset, ok := c.stringPool[funcName]
+		// 2. Function ID
+		funcID, ok := c.funcIDs[funcName]
 		if !ok {
-			offset = c.nextDataOffset
-			c.stringPool[funcName] = offset
-			c.nextDataOffset += len(funcName) + 1
+			return fmt.Errorf("spawn target '%s' not found (imported functions not yet supported for spawn)", funcName)
 		}
-		c.emit(fmt.Sprintf("i32.const %d ;; \"%s\"", offset, funcName))
+		c.emit(fmt.Sprintf("i32.const %d ;; func_id for %s", funcID, funcName))
 		
-		// 3. Call thread_spawn(func_name_ptr, args_arr_ptr)
+		// 3. Call $scheduler_submit(func_id, args_arr_ptr)
 		c.emit(fmt.Sprintf("local.get %d", realArrTemp))
-		c.emit("call $thread_spawn")
-		c.emit("drop") // thread_spawn returns handle/id, ignore for now
+		c.emit("call $scheduler_submit")
 		
 		c.stackType = TypeVoid
 		return nil
@@ -3849,6 +3686,109 @@ func (c *Compiler) Compile(node ast.Node) error {
 				return nil
 			}
 
+			// Check for std.atomic
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "std" && member.Property.Value == "atomic" {
+				// Usage: std.atomic.add(arr, index, val)
+				// Since MemberExpression only goes one level deep (std.atomic), we need another property access.
+				// Wait, the parser parses `std.atomic.add` as (std.atomic).add
+				// So member.Object is `std.atomic`.
+				// But here member.Object is an Identifier "std".
+				// So `std.atomic` is the property access.
+				// But this is a CallExpression.
+				// If we call `std.atomic.add(...)`, the Function is MemberExpression(Object=MemberExpression(std, atomic), Property=add).
+				// We need to handle nested member expressions properly or flatten them.
+				
+				// Currently, we are in `CallExpression` handler. `node.Function` is `MemberExpression`.
+				// If `std.atomic.add`, `member.Object` is `MemberExpression` (std.atomic).
+				
+				// Let's check if member.Object is MemberExpression
+				return fmt.Errorf("std.atomic usage not supported in this form yet")
+			}
+			
+			// Handle std.atomic.add(...)
+			// node.Function is MemberExpression(Object=MemberExpression(std, atomic), Property=add)
+			if subMember, ok := member.Object.(*ast.MemberExpression); ok {
+				if ident, ok := subMember.Object.(*ast.Identifier); ok && ident.Value == "std" && subMember.Property.Value == "atomic" {
+					method := member.Property.Value
+					
+					// Common logic for array access
+					// Arg 0: Array
+					// Arg 1: Index
+					
+					if len(node.Arguments) < 2 {
+						return fmt.Errorf("std.atomic.%s requires at least array and index arguments", method)
+					}
+					
+					// 1. Compile Array (get ptr)
+					if err := c.Compile(node.Arguments[0]); err != nil { return err }
+					// Check type? Assume TypeArray.
+					// Array structure: [capacity, count, data_ptr] at offsets 0, 4, 8.
+					// We need data_ptr.
+					// Stack: [array_struct_ptr]
+					c.emit("i32.const 8")
+					c.emit("i32.add")
+					c.emit("i32.load")
+					// Stack: [data_ptr]
+					
+					// 2. Compile Index
+					if err := c.Compile(node.Arguments[1]); err != nil { return err }
+					// Stack: [data_ptr, index]
+					
+					// Calculate address: data_ptr + index * 4
+					c.emit("i32.const 4")
+					c.emit("i32.mul")
+					c.emit("i32.add")
+					// Stack: [address]
+					
+					switch method {
+					case "add":
+						// Arg 2: Value
+						if len(node.Arguments) != 3 { return fmt.Errorf("atomic.add expects 3 args") }
+						if err := c.Compile(node.Arguments[2]); err != nil { return err }
+						c.emit("i32.atomic.rmw.add")
+						c.stackType = TypeInt
+						
+					case "sub":
+						if len(node.Arguments) != 3 { return fmt.Errorf("atomic.sub expects 3 args") }
+						if err := c.Compile(node.Arguments[2]); err != nil { return err }
+						c.emit("i32.atomic.rmw.sub")
+						c.stackType = TypeInt
+						
+					case "load":
+						if len(node.Arguments) != 2 { return fmt.Errorf("atomic.load expects 2 args") }
+						c.emit("i32.atomic.load")
+						c.stackType = TypeInt
+						
+					case "store":
+						if len(node.Arguments) != 3 { return fmt.Errorf("atomic.store expects 3 args") }
+						if err := c.Compile(node.Arguments[2]); err != nil { return err }
+						c.emit("i32.atomic.store")
+						c.stackType = TypeVoid // store returns nothing
+						
+					case "wait":
+						// wait(addr, expected, timeout) -> 0=ok, 1=not_equal, 2=timed_out
+						if len(node.Arguments) != 4 { return fmt.Errorf("atomic.wait expects 4 args (arr, idx, expected, timeout)") }
+						if err := c.Compile(node.Arguments[2]); err != nil { return err } // Expected
+						if err := c.Compile(node.Arguments[3]); err != nil { return err } // Timeout (i64)
+						// Convert timeout to i64 if it's i32
+						c.emit("i64.extend_i32_s") 
+						c.emit("memory.atomic.wait32")
+						c.stackType = TypeInt
+						
+					case "notify":
+						// notify(addr, count) -> count
+						if len(node.Arguments) != 3 { return fmt.Errorf("atomic.notify expects 3 args (arr, idx, count)") }
+						if err := c.Compile(node.Arguments[2]); err != nil { return err } // Count
+						c.emit("memory.atomic.notify")
+						c.stackType = TypeInt
+						
+					default:
+						return fmt.Errorf("unknown atomic method: %s", method)
+					}
+					return nil
+				}
+			}
+
 			// Check for path module methods
 			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "path" {
 				switch member.Property.Value {
@@ -4686,6 +4626,7 @@ func (c *Compiler) GenerateWAT() string {
 		out.WriteString("  (import \"env\" \"host_from_int\" (func $host_from_int (param i32) (result i32)))\n")
 		out.WriteString("  (import \"env\" \"host_from_string\" (func $host_from_string (param i32) (result i32)))\n")
 		out.WriteString("  (import \"env\" \"host_to_int\" (func $host_to_int (param i32) (result i32)))\n")
+		out.WriteString("  (import \"env\" \"thread_spawn\" (func $thread_spawn (param i32 i32) (result i32)))\n")
 	}
 
 	out.WriteString("  (import \"env\" \"memory\" (memory 1 1000 shared))\n")
@@ -4709,6 +4650,7 @@ func (c *Compiler) GenerateWAT() string {
 
 	// Emit Standard Library
 	out.WriteString(stdLibWAT)
+	out.WriteString(stdLibExtraWAT)
 	if c.target == "wasi" {
 		out.WriteString(wasiEnvWAT)
 	}
@@ -5213,8 +5155,88 @@ func (c *Compiler) GenerateWAT() string {
 `)
 	}
 
+	// --- Task Scheduler: Generate Function Table ---
+	// Emit Table
+	out.WriteString(fmt.Sprintf("(table %d funcref)\n", c.nextFuncID))
+
+	// Dummy task function for empty slots
+	out.WriteString("(func $scheduler_dummy_task (param i32))\n")
+
+	// Emit Elements
+	// Use string builder for elements to avoid many writes
+	var elemBuilder strings.Builder
+	elemBuilder.WriteString("(elem (i32.const 1)")
+	
+	// Create reverse map for efficient lookup
+	idToName := make(map[int]string)
+	for name, id := range c.funcIDs {
+		idToName[id] = name
+	}
+	
+	for i := 1; i < c.nextFuncID; i++ {
+		if name, ok := idToName[i]; ok {
+			 elemBuilder.WriteString(" $wrapper_" + name)
+		} else {
+			 elemBuilder.WriteString(" $scheduler_dummy_task")
+		}
+	}
+	elemBuilder.WriteString(")\n")
+	out.WriteString(elemBuilder.String())
+	
+	// Dispatcher Function
+	out.WriteString(`(func $dispatch_task (param $id i32) (param $args i32)
+	  ;; Debug: Print dispatched ID
+	  ;; local.get $id
+	  ;; call $print_int
+
+	  local.get $id
+	  i32.const 0
+	  i32.le_s
+	  if
+		return
+	  end
+	  
+	  local.get $args
+	  local.get $id
+	  call_indirect (type $task_sig)
+	)
+	`)
+
 	// Emit GC Trace Function
 	c.emitGCTrace(&out)
+
+	// Emit Wrapper Functions for Task Scheduler
+	for _, fn := range c.functions {
+		// Wrapper name: $wrapper_<Name>
+		out.WriteString(fmt.Sprintf("  (func $wrapper_%s (param $args i32)\n", fn.Name))
+		
+		// Unpack args
+		for i := 0; i < fn.ParamCount; i++ {
+			// local.get $args
+			// i32.const <index>
+			// call $array_get
+			out.WriteString("    local.get $args\n")
+			out.WriteString(fmt.Sprintf("    i32.const %d\n", i))
+			out.WriteString("    call $array_get\n")
+		}
+		
+		// Call original function
+		out.WriteString(fmt.Sprintf("    call $%s\n", fn.Name))
+		
+		// Drop result if needed
+		// All functions return i32 in our current ABI (except void?)
+		// Wait, we defined FunctionSignature with ReturnType.
+		// If fn.ReturnType is TypeVoid, it returns nothing?
+		// BUT, in `c.functions` loop below, we emit `(result i32)` for ALL functions!
+		// Line 5250: `paramsStr += " (param i32)"`
+		// Line 5254: `out.WriteString(fmt.Sprintf("  (func $%s %s%s (result i32)\n", fn.Name, exportName, paramsStr))`
+		// So YES, all functions return i32.
+		// So we MUST drop.
+		
+		out.WriteString("    drop\n")
+		
+		out.WriteString("  )\n")
+	}
 
 	for _, fn := range c.functions {
 		// Export all functions for now (needed for spawn)
@@ -5223,6 +5245,10 @@ func (c *Compiler) GenerateWAT() string {
 		if fn.Name == "main" && c.target == "wasi" {
 			// For WASI, main is exported as _start via the export section above.
 			// We also export it as "main" via exportName above.
+			
+			// Inject call to start_workers (Auto-Parallelism)
+			// Start 4 workers
+			fn.Instructions = append([]string{"i32.const 4", "call $start_workers"}, fn.Instructions...)
 		}
 
 		paramsStr := ""
