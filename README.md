@@ -39,8 +39,9 @@ Although core language features (type system, classes, generics, garbage collect
     *   **Done**: `std/http`, `std/net`, Module System (`import/export`), Error Handling (`try/catch`).
     *   **Missing**: Advanced Types (Union Types).
 
-*   **Scenario C: Full-stack Web Apps (TypeScript + React/Vue replacement)**
+*   **Scenario C: Frontend Web Apps (TypeScript replacement)**
     *   **Status**: ❌ **Not Ready (Progress ~15%)**
+    *   **Goal**: Pure TypeScript-like experience without built-in UI frameworks (React/Vue). UI frameworks will be developed separately.
     *   **Missing**: DOM APIs, Event System, Automatic Web Worker offloading.
 
 ### �📅 Phase 1: Backend Foundation (The "Node.js Killer" Start)
