@@ -1,0 +1,19 @@
+function main() {
+    print("Starting Union Types Test");
+
+    let x: int | string = 10;
+    print("x is " + typeof x); // Should be "number" or "int" (runtime boxed type)
+    
+    // We need to support printing boxed values (toString)
+    // Current print expects string. We need to convert.
+    // If x is boxed, we need manual handling or generic print?
+    // Let's rely on string concatenation which might be tricky if not implemented for boxed types.
+    
+    // For now, let's just test typeof
+    
+    x = "Hello";
+    print("x is now " + typeof x); // Should be "string"
+    
+    let y: int = 100;
+    print("y is " + typeof y); // Should be "number" (compile time known)
+}

@@ -78,6 +78,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(token.NEW, p.parseNewExpression)
 	p.registerPrefix(token.THIS, p.parseThisExpression)
 	p.registerPrefix(token.SUPER, p.parseSuperExpression)
+	p.registerPrefix(token.TYPEOF, p.parsePrefixExpression)
 
 	// 注册中缀解析函数
 	p.infixParseFns = make(map[token.TokenType]infixParseFn)
@@ -161,6 +162,7 @@ func (p *Parser) parseStatement() ast.Statement {
 }
 
 func (p *Parser) parseType() string {
+	// Parse base type (identifier or primitive)
 	if !p.expectPeek(token.IDENT) {
 		return ""
 	}
@@ -193,7 +195,21 @@ func (p *Parser) parseType() string {
 			return ""
 		}
 		
-		return fmt.Sprintf("%s<%s>", typeName, strings.Join(generics, ", "))
+		typeName = fmt.Sprintf("%s<%s>", typeName, strings.Join(generics, ", "))
+	}
+	
+	// Check for Union Types (e.g. int | string)
+	if p.peekToken.Type == token.PIPE {
+		p.nextToken() // |
+		
+		// Parse next type (recursive)
+		// We call parseType again to handle A | B | C
+		nextType := p.parseType()
+		if nextType == "" {
+			return ""
+		}
+		
+		typeName = fmt.Sprintf("%s|%s", typeName, nextType)
 	}
 	
 	return typeName

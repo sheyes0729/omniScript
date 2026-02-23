@@ -23,6 +23,8 @@ const (
 
 	LT = "<"
 	GT = ">"
+	
+	PIPE   = "|"
 
 	EQ     = "=="
 	NOT_EQ = "!="
@@ -54,6 +56,7 @@ const (
 	CLASS    = "CLASS"
 	NEW      = "NEW"
 	THIS     = "THIS"
+	TYPEOF   = "TYPEOF"
 	EXTENDS  = "EXTENDS"
 	SUPER    = "SUPER"
 	INTERFACE  = "INTERFACE"
@@ -96,6 +99,7 @@ var keywords = map[string]TokenType{
 	"class":    CLASS,
 	"new":      NEW,
 	"this":     THIS,
+	"typeof":   TYPEOF,
 	"extends":  EXTENDS,
 	"super":    SUPER,
 	"interface": INTERFACE,
