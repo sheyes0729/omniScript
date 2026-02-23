@@ -1,0 +1,26 @@
+{
+  "name": "omniscript",
+  "version": "1.0.0",
+  "description": "OmniScript 是一门统一的编程语言，旨在弥合高性能后端系统与现代前端 Web 应用之间的鸿沟。它的目标是在单一的语言生态系统中，结合 TypeScript 的易用性与 Go 的高性能并发模型。",
+  "main": "index.js",
+  "directories": {
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sheyes0729/omniScript.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sheyes0729/omniScript/issues"
+  },
+  "homepage": "https://github.com/sheyes0729/omniScript#readme",
+  "devDependencies": {
+    "wabt": "^1.0.39"
+  }
+}

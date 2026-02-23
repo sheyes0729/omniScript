@@ -1,0 +1,10 @@
+function main() {
+    let message = "Hello, OmniScript!";
+    let count = 10;
+    
+    if (count > 5) {
+        return true;
+    } else {
+        return false;
+    }
+}

@@ -13,6 +13,7 @@ import (
 )
 
 func main() {
+	target := flag.String("target", "browser", "Target platform (browser or wasi)")
 	flag.Parse()
 	args := flag.Args()
 
@@ -46,7 +47,7 @@ func main() {
 	}
 
 	// 3. Compiling
-	c := compiler.New()
+	c := compiler.New(*target)
 	if err := c.Compile(program); err != nil {
 		fmt.Printf("Compiler error: %v\n", err)
 		os.Exit(1)
@@ -55,8 +56,14 @@ func main() {
 	// 4. Output
 	watContent := c.GenerateWAT()
 	
+	outputDir := "output"
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		fmt.Printf("Error creating output directory: %v\n", err)
+		os.Exit(1)
+	}
+
 	baseName := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
-	outputFile := baseName + ".wat"
+	outputFile := filepath.Join(outputDir, baseName+".wat")
 	
 	if err := os.WriteFile(outputFile, []byte(watContent), 0644); err != nil {
 		fmt.Printf("Error writing file: %v\n", err)
@@ -65,6 +72,4 @@ func main() {
 
 	fmt.Printf("Success! Generated %s\n", outputFile)
 	fmt.Println("You can verify it online at: https://webassembly.github.io/wabt/demo/wat2wasm/")
-	fmt.Println("\nGenerated WAT Content:")
-	fmt.Println(watContent)
 }

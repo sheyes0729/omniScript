@@ -73,6 +73,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(token.IF, p.parseIfExpression)
 	p.registerPrefix(token.FUNCTION, p.parseFunctionLiteral)
 	p.registerPrefix(token.LBRACKET, p.parseArrayLiteral)
+	p.registerPrefix(token.LBRACE, p.parseMapLiteral)
 	p.registerPrefix(token.NEW, p.parseNewExpression)
 	p.registerPrefix(token.THIS, p.parseThisExpression)
 	p.registerPrefix(token.SUPER, p.parseSuperExpression)
@@ -154,23 +155,19 @@ func (p *Parser) parseImportStatement() *ast.ImportStatement {
 
 	stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 
-	// Skip parameters for MVP
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
 
-	for p.peekToken.Type != token.RPAREN && p.peekToken.Type != token.EOF {
-		p.nextToken()
-	}
-
-	if !p.expectPeek(token.RPAREN) {
-		return nil
-	}
+	stmt.Parameters = p.parseImportParameters()
 
 	// Optional return type and semicolon
 	if p.peekToken.Type == token.COLON {
 		p.nextToken() // :
 		p.nextToken() // type
+		stmt.ReturnType = p.curToken.Literal
+	} else {
+		stmt.ReturnType = "void"
 	}
 
 	if p.peekToken.Type == token.SEMICOLON {
@@ -178,6 +175,54 @@ func (p *Parser) parseImportStatement() *ast.ImportStatement {
 	}
 
 	return stmt
+}
+
+func (p *Parser) parseImportParameters() []*ast.FieldDefinition {
+	params := []*ast.FieldDefinition{}
+
+	if p.peekToken.Type == token.RPAREN {
+		p.nextToken()
+		return params
+	}
+
+	p.nextToken()
+
+	param := &ast.FieldDefinition{
+		Token: p.curToken,
+		Name:  &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal},
+		Type:  "int",
+	}
+
+	if p.peekToken.Type == token.COLON {
+		p.nextToken()
+		p.nextToken()
+		param.Type = p.curToken.Literal
+	}
+	params = append(params, param)
+
+	for p.peekToken.Type == token.COMMA {
+		p.nextToken()
+		p.nextToken()
+
+		param := &ast.FieldDefinition{
+			Token: p.curToken,
+			Name:  &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal},
+			Type:  "int",
+		}
+
+		if p.peekToken.Type == token.COLON {
+			p.nextToken()
+			p.nextToken()
+			param.Type = p.curToken.Literal
+		}
+		params = append(params, param)
+	}
+
+	if !p.expectPeek(token.RPAREN) {
+		return nil
+	}
+
+	return params
 }
 
 func (p *Parser) parseWhileStatement() *ast.WhileStatement {
@@ -471,6 +516,42 @@ func (p *Parser) parseArrayLiteral() ast.Expression {
 	array := &ast.ArrayLiteral{Token: p.curToken}
 	array.Elements = p.parseExpressionList(token.RBRACKET)
 	return array
+}
+
+func (p *Parser) parseMapLiteral() ast.Expression {
+	mapLit := &ast.MapLiteral{Token: p.curToken}
+	mapLit.Pairs = make(map[ast.Expression]ast.Expression)
+
+	for p.peekToken.Type != token.RBRACE {
+		p.nextToken()
+		
+		var key ast.Expression
+		if p.curToken.Type == token.IDENT {
+			// Support unquoted keys: { key: val } -> { "key": val }
+			key = &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
+		} else {
+			key = p.parseExpression(LOWEST)
+		}
+
+		if !p.expectPeek(token.COLON) {
+			return nil
+		}
+
+		p.nextToken()
+		value := p.parseExpression(LOWEST)
+
+		mapLit.Pairs[key] = value
+
+		if p.peekToken.Type != token.RBRACE && !p.expectPeek(token.COMMA) {
+			return nil
+		}
+	}
+
+	if !p.expectPeek(token.RBRACE) {
+		return nil
+	}
+
+	return mapLit
 }
 
 func (p *Parser) parseExpressionList(end token.TokenType) []ast.Expression {

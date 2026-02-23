@@ -1,0 +1,49 @@
+class Animal {
+    name: string;
+    
+    init(n) {
+        this.name = n;
+    }
+    
+    speak() {
+        print(this.name);
+    }
+
+    getType() {
+        return 1;
+    }
+}
+
+class Dog extends Animal {
+    breed: string;
+    
+    init(n, b) {
+        super.init(n);
+        this.breed = b;
+    }
+    
+    speak() {
+        print("Woof! I am " + this.name);
+    }
+    
+    getBreed() {
+        print(this.breed);
+    }
+
+    getType() {
+        return 2;
+    }
+}
+
+declare function print(s);
+
+function main() {
+    let a = new Animal("Generic Animal");
+    a.speak();
+    print(a.getType());
+
+    let d = new Dog("Buddy", "Golden Retriever");
+    d.speak();
+    d.getBreed();
+    print(d.getType());
+}

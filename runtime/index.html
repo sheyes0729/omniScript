@@ -4,26 +4,66 @@
     <meta charset="UTF-8">
     <title>OmniScript Runtime Playground</title>
     <script src="https://unpkg.com/wabt@1.0.32/index.js"></script>
+    <script src="omni_runtime.js"></script>
     <style>
         body { font-family: monospace; padding: 20px; }
         .container { display: flex; gap: 20px; }
         textarea { width: 100%; height: 300px; font-family: monospace; }
         #output { background: #f0f0f0; padding: 10px; min-height: 100px; }
         button { padding: 10px 20px; cursor: pointer; font-weight: bold; }
+        
+        /* Test Area */
+        #test-area { border: 1px solid #ccc; padding: 20px; margin-top: 20px; }
     </style>
 </head>
 <body>
     <h1>OmniScript Runtime (WAT Loader)</h1>
+    
+    <div id="test-area">
+        <h3>DOM Test Area</h3>
+        <div id="status">Waiting...</div>
+        <button id="actionBtn">Click Me (Controlled by Wasm)</button>
+    </div>
+
     <div class="container">
         <div style="flex: 1">
             <h3>WAT Code (Paste generated .wat here)</h3>
+            <button onclick="loadDomTest()" style="margin-bottom: 10px;">Load Generated dom_test.wat</button>
             <textarea id="watInput">
 (module
-  (import "env" "log" (func $log (param i32)))
+  ;; Imports from OmniRuntime
+  (import "env" "print" (func $print (param i32)))
+  (import "env" "document_getElementById" (func $document_getElementById (param i32) (result i32)))
+  (import "env" "element_setInnerText" (func $element_setInnerText (param i32) (param i32)))
+
+  ;; Memory export
+  (memory (export "memory") 1)
+  
+  ;; Data segment for strings
+  (data (i32.const 0) "status\00")
+  (data (i32.const 10) "Hello from Wasm!\00")
+
   (func $main (export "main") (result i32)
-    i32.const 42
-    call $log
-    i32.const 100
+    (local $el i32)
+    
+    ;; print("status")
+    i32.const 0
+    call $print
+
+    ;; el = document.getElementById("status")
+    i32.const 0
+    call $document_getElementById
+    local.set $el
+
+    ;; if (el != 0) element.innerText = "Hello from Wasm!"
+    local.get $el
+    if
+      local.get $el
+      i32.const 10
+      call $element_setInnerText
+    end
+
+    i32.const 0
   )
 )
             </textarea>
@@ -38,37 +78,24 @@
 
     <script>
         const outputDiv = document.getElementById('output');
-        let wasmMemory; // Global reference to Wasm memory
         
-        // Mock standard library
-        const importObject = {
-            env: {
-                log: (arg) => {
-                    logToPage(`[LOG] ${arg}`);
-                },
-                print: (ptr) => {
-                    if (wasmMemory) {
-                        const buffer = new Uint8Array(wasmMemory.buffer);
-                        let str = "";
-                        let i = ptr;
-                        // Read null-terminated string
-                        while (buffer[i] !== 0) {
-                            str += String.fromCharCode(buffer[i]);
-                            i++;
-                        }
-                        logToPage(`[PRINT] ${str}`);
-                    } else {
-                        logToPage(`[ERROR] Memory not accessible`);
-                    }
-                }
-            }
-        };
-
         function logToPage(msg) {
             const line = document.createElement('div');
             line.textContent = msg;
             outputDiv.appendChild(line);
             console.log(msg);
+        }
+
+        async function loadDomTest() {
+            try {
+                const response = await fetch('../output/dom_test.wat');
+                if (!response.ok) throw new Error('Failed to load output/dom_test.wat');
+                const text = await response.text();
+                document.getElementById('watInput').value = text;
+                logToPage("[INFO] Loaded output/dom_test.wat");
+            } catch (e) {
+                logToPage(`[ERROR] ${e.message}`);
+            }
         }
 
         async function runWasm() {
@@ -80,13 +107,23 @@
                 const module = wabt.parseWat('example.wat', watContent);
                 const binary = module.toBinary({});
                 
-                const wasmModule = await WebAssembly.instantiate(binary.buffer, importObject);
-                const { main, memory } = wasmModule.instance.exports;
+                // Initialize OmniRuntime
+                const runtime = new OmniRuntime();
                 
-                // Save exported memory reference
-                wasmMemory = memory;
+                // Get imports
+                const imports = runtime.getImports();
+
+                const wasmModule = await WebAssembly.instantiate(binary.buffer, imports);
+                const instance = wasmModule.instance;
+                
+                // Link memory to runtime
+                runtime.setMemory(instance.exports.memory);
+                runtime.exports = instance.exports;
+
+                const { main } = instance.exports;
                 
                 if (main) {
+                    logToPage("[INFO] Running main...");
                     const result = main();
                     logToPage(`[RESULT] Main returned: ${result}`);
                 } else {
@@ -94,6 +131,7 @@
                 }
             } catch (e) {
                 logToPage(`[ERROR] ${e.message}`);
+                console.error(e);
             }
         }
     </script>

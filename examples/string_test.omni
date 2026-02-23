@@ -1,0 +1,26 @@
+declare function print(i);
+
+function main() {
+    let s = "Hello World";
+    print(s.length); // 11
+    
+    let sub = s.substring(0, 5);
+    print(sub); // "Hello" (as ptr, wait, print expects int? No, print needs to handle strings?)
+    
+    // Oh, print function in examples is (param i32).
+    // If we pass a string ptr to print, it usually prints the address unless we have a printString.
+    // The current environment "print" function (imported from host) might just print the integer.
+    // We don't have a host function to print strings yet in this environment?
+    // Wait, the host environment (Go wrapper) needs to support printing strings.
+    // But for now let's just test logic.
+    
+    print(sub.length); // 5
+    
+    let charCode = s.charCodeAt(1); // 'e' -> 101
+    print(charCode);
+    
+    let sub2 = s.substring(6, 11);
+    // "World"
+    print(sub2.length); // 5
+    print(sub2.charCodeAt(0)); // 'W' -> 87
+}

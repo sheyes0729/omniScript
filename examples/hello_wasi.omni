@@ -1,0 +1,3 @@
+function main() {
+    print("Hello from OmniScript WASI Backend!");
+}

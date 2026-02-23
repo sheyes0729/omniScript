@@ -1,0 +1,5 @@
+function main() {
+    print("Writing to test.txt...");
+    fs.writeFile("test.txt", "Hello from OmniScript File System!");
+    print("Done.");
+}

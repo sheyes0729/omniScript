@@ -1,0 +1,15 @@
+declare function log(n);
+
+function main() {
+    let arr = [10, 20, 30];
+    
+    // Test access
+    let x = arr[1];
+    log(x); // Should log 20
+    
+    // Test arithmetic with array elements
+    let sum = arr[0] + arr[2];
+    log(sum); // Should log 40
+    
+    return 0;
+}

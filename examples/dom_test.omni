@@ -1,0 +1,14 @@
+function main() {
+    console.log("Starting DOM test...");
+    
+    let el = document.getElementById("status");
+    
+    // Check if element exists (handle != 0)
+    if (el != 0) {
+        // Direct property access and method calls
+        el.innerText = "Hello from OmniScript (via DOM API)!";
+        console.log("Updated status element text.");
+    } else {
+        console.log("Could not find element with id 'status'.");
+    }
+}

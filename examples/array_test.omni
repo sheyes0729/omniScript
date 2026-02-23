@@ -1,0 +1,31 @@
+class Item {
+    id: int;
+    init(i) { this.id = i; }
+}
+
+declare function print(i);
+
+function main() {
+    let arr = [10, 20, 30];
+    print(arr.length); // 3
+    print(arr[1]); // 20
+    
+    arr.push(40);
+    print(arr.length); // 4
+    print(arr[3]); // 40
+    
+    // Array of objects
+    let objArr = [new Item(1), new Item(2)];
+    print(objArr[0].id); // 1
+    
+    // Test GC with arrays
+    let i = 0;
+    while (i < 100) {
+        // Create garbage arrays
+        let junk = [i, i+1, i+2];
+        junk.push(i+3);
+        i = i + 1;
+    }
+    
+    print(999);
+}

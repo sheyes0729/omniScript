@@ -1,0 +1,36 @@
+class Node {
+    val: int;
+    next: Node;
+    
+    init(v) {
+        this.val = v;
+    }
+}
+
+declare function print(i);
+
+function main() {
+    let head = new Node(1);
+    let curr = head;
+    
+    // Create a chain of 1000 nodes
+    let i = 0;
+    while (i < 1000) {
+        let n = new Node(i);
+        curr.next = n;
+        curr = n;
+        i = i + 1;
+        
+        // Explicitly trigger GC every 100 nodes to test
+        // In real world, malloc would trigger it.
+        // We can't easily check memory usage here, but if it doesn't crash, good.
+    }
+    
+    print(head.val);
+    
+    // Drop reference to head (in a new scope or function)
+    // But here we are in main.
+    
+    // Test done
+    print(9999);
+}

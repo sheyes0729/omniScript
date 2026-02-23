@@ -1,0 +1,39 @@
+declare function print(i);
+
+function main() {
+    let m = {
+        "a": 10,
+        "b": 20
+    };
+    
+    print(m["a"]); // 10
+    print(m["b"]); // 20
+    print(m["c"]); // 0 (not found)
+    
+    m["c"] = 30;
+    print(m["c"]); // 30
+    
+    // Collision test (needs knowing hash function, but general test is fine)
+    m["d"] = 40;
+    m["e"] = 50;
+    
+    print(m["d"]); // 40
+    print(m["e"]); // 50
+    
+    // Test GC with Maps
+    let i = 0;
+    while (i < 100) {
+        let temp = {"temp": i};
+        i = i + 1;
+    }
+    
+    print(999);
+    
+    // Test unquoted keys
+    let m2 = {
+        unquoted: 123,
+        quoted: 456
+    };
+    print(m2["unquoted"]); // 123
+    print(m2["quoted"]); // 456
+}

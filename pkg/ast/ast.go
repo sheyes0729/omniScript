@@ -104,14 +104,34 @@ func (ws *WhileStatement) String() string {
 
 // ImportStatement 外部函数声明
 type ImportStatement struct {
-	Token token.Token // 'declare'
-	Name  *Identifier
+	Token      token.Token // 'declare'
+	Name       *Identifier
+	Parameters []*FieldDefinition // Reuse FieldDefinition for parameters (Name: Type)
+	ReturnType string             // "void", "int", "string"
 }
 
 func (is *ImportStatement) statementNode()       {}
 func (is *ImportStatement) TokenLiteral() string { return is.Token.Literal }
 func (is *ImportStatement) String() string {
-	return "declare function " + is.Name.String() + "(...);"
+	var out bytes.Buffer
+	out.WriteString("declare function ")
+	out.WriteString(is.Name.String())
+	out.WriteString("(")
+	for i, p := range is.Parameters {
+		out.WriteString(p.Name.String())
+		if p.Type != "" {
+			out.WriteString(": " + p.Type)
+		}
+		if i < len(is.Parameters)-1 {
+			out.WriteString(", ")
+		}
+	}
+	out.WriteString(")")
+	if is.ReturnType != "" {
+		out.WriteString(": " + is.ReturnType)
+	}
+	out.WriteString(";")
+	return out.String()
 }
 
 // ExpressionStatement 是为了让表达式可以作为语句出现（例如单独一行的函数调用）
@@ -318,7 +338,32 @@ func (al *ArrayLiteral) String() string {
 	return out.String()
 }
 
-// IndexExpression 索引访问 arr[index]
+// MapLiteral { key: val, ... }
+type MapLiteral struct {
+	Token token.Token // '{'
+	Pairs map[Expression]Expression // Only supports String keys effectively for now
+}
+
+func (ml *MapLiteral) expressionNode() {}
+func (ml *MapLiteral) TokenLiteral() string { return ml.Token.Literal }
+func (ml *MapLiteral) String() string {
+	var out bytes.Buffer
+	out.WriteString("{")
+	i := 0
+	for key, value := range ml.Pairs {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(key.String())
+		out.WriteString(":")
+		out.WriteString(value.String())
+		i++
+	}
+	out.WriteString("}")
+	return out.String()
+}
+
+// IndexExpression 数组/Map索引 arr[1], map["key"]
 type IndexExpression struct {
 	Token token.Token // '['
 	Left  Expression

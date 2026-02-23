@@ -1,0 +1,9 @@
+declare function print(s);
+
+function main() {
+    let s1 = "Hello, ";
+    let s2 = "OmniScript!";
+    let result = s1 + s2;
+    print(result);
+    return 0;
+}

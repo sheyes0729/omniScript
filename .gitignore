@@ -31,5 +31,9 @@ go.work.sum
 # .idea/
 # .vscode/
 
+output/
 *.wat
-examples
+
+node_modules
+
+test.txt
