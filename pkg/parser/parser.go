@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 	"omniScript/pkg/ast"
 	"omniScript/pkg/lexer"
 	"omniScript/pkg/token"
@@ -151,6 +152,45 @@ func (p *Parser) parseStatement() ast.Statement {
 	}
 }
 
+func (p *Parser) parseType() string {
+	if !p.expectPeek(token.IDENT) {
+		return ""
+	}
+	typeName := p.curToken.Literal
+
+	// Check for Generics <T, U>
+	if p.peekToken.Type == token.LT {
+		p.nextToken() // <
+		
+		var generics []string
+		
+		// First generic arg
+		innerType := p.parseType()
+		if innerType == "" {
+			return ""
+		}
+		generics = append(generics, innerType)
+		
+		// Subsequent generic args
+		for p.peekToken.Type == token.COMMA {
+			p.nextToken() // ,
+			innerType = p.parseType()
+			if innerType == "" {
+				return ""
+			}
+			generics = append(generics, innerType)
+		}
+		
+		if !p.expectPeek(token.GT) {
+			return ""
+		}
+		
+		return fmt.Sprintf("%s<%s>", typeName, strings.Join(generics, ", "))
+	}
+	
+	return typeName
+}
+
 func (p *Parser) parseTypeAliasStatement() *ast.TypeAliasStatement {
 	stmt := &ast.TypeAliasStatement{Token: p.curToken}
 
@@ -164,11 +204,10 @@ func (p *Parser) parseTypeAliasStatement() *ast.TypeAliasStatement {
 	}
 
 	// Parse Type
-	// Currently only support single identifier (int, string, Alias)
-	if !p.expectPeek(token.IDENT) {
+	stmt.Value = p.parseType()
+	if stmt.Value == "" {
 		return nil
 	}
-	stmt.Value = p.curToken.Literal
 
 	if p.peekToken.Type == token.SEMICOLON {
 		p.nextToken()
@@ -207,8 +246,7 @@ func (p *Parser) parseInterfaceStatement() *ast.InterfaceStatement {
 			// Optional return type
 			if p.peekToken.Type == token.COLON {
 				p.nextToken() // :
-				p.nextToken() // type
-				method.ReturnType = p.curToken.Literal
+				method.ReturnType = p.parseType()
 			} else {
 				method.ReturnType = "void"
 			}
@@ -290,8 +328,7 @@ func (p *Parser) parseImportStatement() *ast.ImportStatement {
 	// Optional return type and semicolon
 	if p.peekToken.Type == token.COLON {
 		p.nextToken() // :
-		p.nextToken() // type
-		stmt.ReturnType = p.curToken.Literal
+		stmt.ReturnType = p.parseType()
 	} else {
 		stmt.ReturnType = "void"
 	}
@@ -321,8 +358,7 @@ func (p *Parser) parseImportParameters() []*ast.FieldDefinition {
 
 	if p.peekToken.Type == token.COLON {
 		p.nextToken()
-		p.nextToken()
-		param.Type = p.curToken.Literal
+		param.Type = p.parseType()
 	}
 	params = append(params, param)
 
@@ -338,8 +374,7 @@ func (p *Parser) parseImportParameters() []*ast.FieldDefinition {
 
 		if p.peekToken.Type == token.COLON {
 			p.nextToken()
-			p.nextToken()
-			param.Type = p.curToken.Literal
+			param.Type = p.parseType()
 		}
 		params = append(params, param)
 	}
@@ -461,8 +496,7 @@ func (p *Parser) parseLetStatement() *ast.LetStatement {
 
 	if p.peekToken.Type == token.COLON {
 		p.nextToken() // :
-		p.nextToken() // Type
-		stmt.Type = p.curToken.Literal
+		stmt.Type = p.parseType()
 	}
 
 	if !p.expectPeek(token.ASSIGN) {
@@ -682,8 +716,7 @@ func (p *Parser) parseFunctionParameters() []*ast.FieldDefinition {
 	// Optional Type Annotation
 	if p.peekToken.Type == token.COLON {
 		p.nextToken() // :
-		p.nextToken() // type
-		ident.Type = p.curToken.Literal
+		ident.Type = p.parseType()
 	}
 
 	identifiers = append(identifiers, ident)
@@ -700,8 +733,7 @@ func (p *Parser) parseFunctionParameters() []*ast.FieldDefinition {
 
 		if p.peekToken.Type == token.COLON {
 			p.nextToken()
-			p.nextToken()
-			ident.Type = p.curToken.Literal
+			ident.Type = p.parseType()
 		}
 		
 		identifiers = append(identifiers, ident)
@@ -932,9 +964,7 @@ func (p *Parser) parseClassStatement() *ast.ClassStatement {
 			
 			if p.curToken.Type == token.COLON {
 				p.nextToken() // consume :
-				// Simple type parsing: assume just an identifier for now
-				field.Type = p.curToken.Literal
-				p.nextToken() // consume type
+				field.Type = p.parseType()
 			}
 			
 			if p.curToken.Type == token.ASSIGN {

@@ -117,6 +117,16 @@ if (isMainThread) {
     }
 
     run().catch(err => {
+        // Check for WASI exit (it throws an error to exit)
+        // The error object might be internal, check toString() or similar
+        if (err.toString().includes("ExitStatus") || err.toString().includes("kExitCode")) {
+             // Normal exit
+             return;
+        }
+        if (typeof err === 'object' && err !== null && 'code' in err && typeof err.code === 'number') {
+             process.exit(err.code);
+        }
+        
         console.error("Runtime Error:", err);
         process.exit(1);
     });

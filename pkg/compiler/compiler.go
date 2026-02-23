@@ -3,6 +3,7 @@ package compiler
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"omniScript/pkg/ast"
 )
 
@@ -2398,6 +2399,13 @@ func (c *Compiler) resolveType(typeName string) DataType {
 			return TypeMap
 		}
 
+		if strings.HasPrefix(current, "Array<") {
+			return TypeArray
+		}
+		if strings.HasPrefix(current, "Map<") {
+			return TypeMap
+		}
+
 		if alias, ok := c.typeAliases[current]; ok {
 			current = alias
 			continue
@@ -3409,6 +3417,23 @@ func (c *Compiler) Compile(node ast.Node) error {
 				}
 			}
 
+			// Check for process.exit
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "process" && member.Property.Value == "exit" {
+				if c.target != "wasi" {
+					return fmt.Errorf("process.exit is only supported in WASI target")
+				}
+				if len(node.Arguments) != 1 {
+					return fmt.Errorf("process.exit expects 1 argument (exit code)")
+				}
+				if err := c.Compile(node.Arguments[0]); err != nil {
+					return err
+				}
+				c.emit("call $proc_exit")
+				c.emit("unreachable") // Should not return
+				c.stackType = TypeVoid
+				return nil
+			}
+
 
 			// Check for process.env (WASI only)
 			// Usage: process.env -> Map<string, string>
@@ -3799,7 +3824,7 @@ func (c *Compiler) Compile(node ast.Node) error {
 		c.current.NextLocalID++
 		c.current.ShadowStackSize++
 
-		c.emit(fmt.Sprintf("local.tee %d", tempIndex+c.current.ParamCount))
+		c.emit(fmt.Sprintf("local.set %d", tempIndex+c.current.ParamCount))
 		
 		// Push to shadow stack (it's a root!)
 		c.emit("global.get $shadow_stack_ptr")
@@ -3838,7 +3863,7 @@ func (c *Compiler) Compile(node ast.Node) error {
 		c.current.NextLocalID++
 		c.current.ShadowStackSize++
 
-		c.emit(fmt.Sprintf("local.tee %d", tempIndex+c.current.ParamCount))
+		c.emit(fmt.Sprintf("local.set %d", tempIndex+c.current.ParamCount))
 		
 		// Push to shadow stack
 		c.emit("global.get $shadow_stack_ptr")
@@ -4101,7 +4126,8 @@ func (c *Compiler) GenerateWAT() string {
   (import "wasi_snapshot_preview1" "path_unlink_file" (func $path_unlink_file (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_create_directory" (func $path_create_directory (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_remove_directory" (func $path_remove_directory (param i32 i32 i32) (result i32)))
-  (import "wasi_snapshot_preview1" "path_filestat_get" (func $path_filestat_get (param i32 i32 i32 i32 i32) (result i32)))`)
+  (import "wasi_snapshot_preview1" "path_filestat_get" (func $path_filestat_get (param i32 i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))`)
 		out.WriteString("\n")
 
 		// User defined imports for WASI

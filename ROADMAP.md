@@ -18,41 +18,50 @@ OmniScript aims to be the ultimate full-stack language, enabling frontend develo
     - [x] `fs.writeFile` / `fs.writeFileSync`.
     - [x] `fs.readFile` / `fs.readFileSync`.
     - [x] `fs.unlinkSync`, `fs.mkdirSync`, `fs.rmdirSync`, `fs.existsSync`.
-    - [ ]  Direct mapping to WASI `path_open`, `fd_read`, `fd_write`.
-- [x] **Control Flow**: Implement `for` loops.
+    -   Direct mapping to WASI `path_open`, `fd_read`, `fd_write`.
+- [x] **Control Flow**: Implement `for` and `while` loops.
 - [x] **Runtime Shim**: A lightweight Node.js loader to run OmniScript WASI binaries locally during development (`scripts/run_wasi.js`).
 
-## 📅 Phase 2: Type System Hardening (The "TypeScript" Promise)
-**Goal**: Enforce strict type safety to prevent runtime errors.
+## 📅 Phase 2: Type System & Core Language Features (The "TypeScript" Promise)
+**Goal**: Enforce strict type safety and provide rich language features.
 
+- [x] **Classes & Inheritance**: Support `class`, `extends`, `super`, `new`.
 - [x] **Interfaces**: Support `interface` definitions for structural typing.
-- [ ] **Generics**: Implement `<T>` for functions and classes (e.g., `Array<T>`).
-- [x] **Type Aliases**: Support `type MyType = int`.
-- [ ] **Advanced Types**: Union types (`int | string`).
 - [x] **Enums**: Support `enum` definitions with integer values.
+- [x] **Type Aliases**: Support `type MyType = int`.
 - [x] **Compile-Time Checks**: Strict validation of function arguments (count).
+- [x] **Generics**: Implement `<T>` for functions and classes (e.g., `Array<T>`).
+- [ ] **Advanced Types**: Union types (`int | string`).
 
-## 📅 Phase 3: Concurrency & Performance (The "Go" Power)
-**Goal**: Unlock multi-core performance and automatic task distribution.
+## 📅 Phase 3: Concurrency, Memory & Performance (The "Go" Power)
+**Goal**: Unlock multi-core performance, automatic task distribution, and memory safety.
 
-- [x] **Shared Memory**: Switch default memory model to `SharedArrayBuffer` (Wasm Threads).
-- [x] **Atomics**: Implement `Atomics` intrinsics for thread-safe operations.
-- [ ] **Auto-Parallelism**:
+- [x] **Memory Management**:
+    - [x] **Garbage Collection**: Mark-and-Sweep GC for Objects and Arrays.
+    - [x] **Shared Memory**: Switch default memory model to `SharedArrayBuffer` (Wasm Threads).
+- [x] **Concurrency**:
+    - [x] **Atomics**: Implement `Atomics` intrinsics for thread-safe operations.
     - [x] **`spawn` keyword**: Lightweight thread creation (allocates new Stack, shares Heap).
+- [ ] **Auto-Parallelism**:
     - [ ] **Task Scheduler**: Runtime logic to distribute tasks to Web Workers (Frontend) or System Threads (Backend).
     - [ ] **Compute Density Analysis**: Compiler pass to identify "heavy" functions for auto-offloading.
 
 ## 📅 Phase 4: Standard Library & Ecosystem
 **Goal**: Provide batteries-included modules for rapid development.
 
+- [x] **Core Data Structures**:
+    - [x] **Arrays**: Dynamic arrays (`[]`, `.push`, `.length`).
+    - [x] **Maps**: Hash maps (`{}`, key access).
+    - [x] **Strings**: Basic string manipulation (`substring`, `charCodeAt`, `length`).
+- [x] **std/path**: Cross-platform path manipulation.
+- [x] **std/fs**: File System API (see Phase 1).
 - [ ] **std/http**: High-performance HTTP 1.1/2 Server (using WASI-socket or host bindings).
 - [ ] **std/net**: Low-level TCP/UDP access.
-- [x] **std/path**: Cross-platform path manipulation.
-- [ ] **std/os**: OS-level interaction (signals, user info).
+- [x] **std/os**: OS-level interaction (process.exit, process.env).
 
 ---
 
 ## Next Immediate Steps
-1.  Verify WASI execution with a runtime (e.g., Wasmtime or Node.js).
-2.  Implement `std/fs` (File System) support via WASI.
-3.  Implement basic Type System features (Interfaces).
+1.  Implement **Advanced Types** (Union Types).
+2.  Start **std/http** implementation.
+3.  Expand **std/os** with more system calls.

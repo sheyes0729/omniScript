@@ -1,0 +1,7 @@
+declare function print(s: string);
+
+function main() {
+    print("Before exit");
+    process.exit(1);
+    print("After exit (should not run)");
+}

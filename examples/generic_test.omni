@@ -1,0 +1,17 @@
+declare function print(s: string);
+declare function print_int(n: int);
+
+function main() {
+    let arr: Array<int> = [10, 20, 30];
+    print("Array created with generic type annotation");
+    
+    let val = arr[1];
+    print("Value at index 1:");
+    print_int(val);
+
+    // Test Map with generics
+    let m: Map<string, int> = { "k1": 100 };
+    print("Map created with Map<string, int>");
+    let v = m["k1"];
+    print_int(v);
+}
