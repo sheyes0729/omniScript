@@ -1,0 +1,49 @@
+// Test for http, tcp (net), udp (dgram) support
+
+function main() {
+    print("Starting network tests...");
+
+    // 1. HTTP Test
+    print("Testing HTTP...");
+    // We can't easily spin up a server and wait for it in this sync model without callbacks/async-await in OmniScript.
+    // But we can call http.get which accepts a callback.
+    // Since OmniScript doesn't support closures/callbacks passed to host yet (function pointers),
+    // we can only test the API existence or simple synchronous-like calls if we had them.
+    // Node's http.get returns a ClientRequest.
+    
+    // For this test, let's just verify we can access the modules and objects.
+    
+    let httpObj = http;
+    if (httpObj) {
+        print("HTTP module loaded.");
+    } else {
+        print("HTTP module FAILED.");
+    }
+
+    // 2. TCP Test (net)
+    print("Testing TCP (net)...");
+    let netObj = net;
+    if (netObj) {
+        print("Net module loaded.");
+        let server = net.createServer();
+        if (server) {
+            print("TCP Server created.");
+            // server.listen(0); // Don't actually listen to avoid hanging
+            // server.close();
+        }
+    }
+
+    // 3. UDP Test (dgram)
+    print("Testing UDP (dgram)...");
+    let dgramObj = dgram;
+    if (dgramObj) {
+        print("Dgram module loaded.");
+        let socket = dgram.createSocket("udp4");
+        if (socket) {
+            print("UDP Socket created.");
+            socket.close();
+        }
+    }
+    
+    print("Network tests completed.");
+}

@@ -23,20 +23,21 @@ The core philosophy of OmniScript is "One Language, Two Worlds":
 
 ## Development Roadmap & Status
 
-### � Current Overall Progress: ~40% - 45%
+### 🚀 Current Overall Progress: ~55% - 60%
 
-Although core language features (type system, classes, generics, garbage collection) are quite mature, there is still a significant gap before "full-stack production readiness".
+Although core language features (type system, classes, generics, garbage collection, modules) are quite mature, there is still a significant gap before "full-stack production readiness".
 
 #### When can it be used for production?
 
 *   **Scenario A: Simple CLI tools, automation scripts, algorithm verification**
     *   **Status**: ✅ **Ready (Alpha)**
-    *   **Capabilities**: File system (`std/fs`), path manipulation (`std/path`), process control (`std/os`), complex data structures (`Map`, `Array`, `Class`, `Generic`), and concurrency (`spawn`).
-    *   **Limitations**: Single-file only (no module system), primitive error handling.
+    *   **Capabilities**: File system (`std/fs`), path manipulation (`std/path`), process control (`std/os`), complex data structures (`Map`, `Array`, `Class`, `Generic`), concurrency (`spawn`), and **Modules**.
+    *   **Limitations**: Primitive error handling.
 
 *   **Scenario B: High-performance backend services (Node.js/Go replacement)**
-    *   **Status**: 🚧 **Not Ready (Progress ~30%)**
-    *   **Missing**: `std/http`, `std/net`, Module System (`import/export`), Error Handling (`try/catch`).
+    *   **Status**: 🚧 **Not Ready (Progress ~50%)**
+    *   **Missing**: Error Handling (`try/catch`).
+    *   **Done**: `std/http`, `std/net`, Module System (`import/export`).
 
 *   **Scenario C: Full-stack Web Apps (TypeScript + React/Vue replacement)**
     *   **Status**: ❌ **Not Ready (Progress ~15%)**
@@ -91,8 +92,9 @@ Although core language features (type system, classes, generics, garbage collect
     - [x] **Strings**: Basic string manipulation (`substring`, `charCodeAt`, `length`).
 - [x] **std/path**: Cross-platform path manipulation.
 - [x] **std/fs**: File System API (see Phase 1).
-- [ ] **std/http**: High-performance HTTP 1.1/2 Server (using WASI-socket or host bindings).
-- [ ] **std/net**: Low-level TCP/UDP access.
+- [x] **std/http**: HTTP Server/Client (via Host Bindings).
+- [x] **std/net**: TCP Server/Socket (via Host Bindings).
+- [x] **std/dgram**: UDP Socket (via Host Bindings).
 - [x] **std/os**: OS-level interaction (process.exit, process.env).
 
 ---

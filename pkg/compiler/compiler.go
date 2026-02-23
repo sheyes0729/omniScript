@@ -4417,6 +4417,15 @@ func (c *Compiler) GenerateWAT() string {
 			}
 			out.WriteString(fmt.Sprintf("  (import \"env\" \"%s\" (func $%s%s%s))\n", name, name, params, result))
 		}
+		
+		// Host interop for WASI (shared with browser)
+		out.WriteString("  (import \"env\" \"host_get_global\" (func $host_get_global (param i32) (result i32)))\n")
+		out.WriteString("  (import \"env\" \"host_get\" (func $host_get (param i32) (param i32) (result i32)))\n")
+		out.WriteString("  (import \"env\" \"host_set\" (func $host_set (param i32) (param i32) (param i32)))\n")
+		out.WriteString("  (import \"env\" \"host_call\" (func $host_call (param i32) (param i32) (param i32) (param i32) (result i32)))\n")
+		out.WriteString("  (import \"env\" \"host_from_int\" (func $host_from_int (param i32) (result i32)))\n")
+		out.WriteString("  (import \"env\" \"host_from_string\" (func $host_from_string (param i32) (result i32)))\n")
+		out.WriteString("  (import \"env\" \"host_to_int\" (func $host_to_int (param i32) (result i32)))\n")
 
 	} else {
 		// Browser imports
