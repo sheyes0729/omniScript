@@ -1,0 +1,10 @@
+declare function print(s);
+
+function add(a: int, b: int) {
+    return a + b;
+}
+
+function main() {
+    let res = add(10, 20);
+    print("Result: " + res);
+}

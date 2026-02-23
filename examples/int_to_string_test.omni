@@ -1,0 +1,12 @@
+declare function print(s: string);
+
+function main() {
+    let i = 123;
+    // Explicit call to built-in
+    let s = int_to_string(i); 
+    print(s);
+    
+    // Implicit call via concatenation
+    let s2 = "Value: " + i;
+    print(s2);
+}

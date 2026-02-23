@@ -1,0 +1,8 @@
+function main() {
+    print("Writing to read_test.txt...");
+    fs.writeFile("read_test.txt", "Content read from file!");
+    
+    print("Reading from read_test.txt...");
+    let content = fs.readFile("read_test.txt");
+    print("File Content: " + content);
+}

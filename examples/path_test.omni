@@ -1,0 +1,28 @@
+declare function print(s);
+
+function main() {
+    print("Testing path module...");
+
+    let p = "/home/user/docs/file.txt";
+    print("Path: " + p);
+    
+    let base = path.basename(p);
+    print("Basename: " + base);
+    
+    let dir = path.dirname(p);
+    print("Dirname: " + dir);
+    
+    let ext = path.extname(p);
+    print("Extname: " + ext);
+    
+    let joined = path.join("/home", "user", "docs");
+    print("Joined: " + joined);
+    
+    let joined2 = path.join("foo", "bar");
+    print("Joined2: " + joined2);
+
+    let joined3 = path.join("/foo/", "bar");
+    print("Joined3 (trailing slash): " + joined3);
+    
+    print("Done.");
+}

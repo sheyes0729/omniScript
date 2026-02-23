@@ -20,157 +20,74 @@ const (
 )
 
 const stdLibWAT = `
-;; --- Built-in Memory & String Library ---
-(global $heap_ptr (mut i32) (i32.const 10240)) 
-(global $free_list (mut i32) (i32.const 0))
+;; --- Built-in Memory & String Library (Thread-Safe) ---
+;; Heap Pointer is at offset 1020 (i32)
+;; Shadow Stack Pointer is global per thread
 (global $shadow_stack_base (mut i32) (i32.const 1024))
 (global $shadow_stack_ptr (mut i32) (i32.const 1024))
 (global $allocated_list (mut i32) (i32.const 0))
 
+(func $set_stack_pointer (param $ptr i32)
+  local.get $ptr
+  global.set $shadow_stack_base
+  local.get $ptr
+  global.set $shadow_stack_ptr
+)
+
 (func $malloc (param $size i32) (param $type_id i32) (result i32)
-  (local $curr i32)
-  (local $prev i32)
-  (local $block_size i32)
+  (local $ptr i32)
+  (local $total i32)
   
-  ;; Align size to 8 bytes (for safe aligned access)
+  ;; Align size to 8 bytes
   local.get $size
   i32.const 7
   i32.add
-  i32.const -8 ;; 0xFFFFFFF8
+  i32.const -8
   i32.and
   local.set $size
 
-  ;; Add 16 bytes for header: [next_allocated (4)] [size (4)] [mark (4)] [type_id (4)]
+  ;; Header size: 16 bytes
   local.get $size
   i32.const 16
   i32.add
-  local.set $size
-
-  global.get $free_list
-  local.set $curr
+  local.set $total
+  
+  ;; Atomic bump pointer at 1020
+  ;; ptr = atomic_add(1020, total)
+  i32.const 1020
+  local.get $total
+  i32.atomic.rmw.add
+  local.set $ptr
+  
+  ;; Initialize header
+  ;; Offset 0: next_allocated (dummy 0 for now)
+  local.get $ptr
   i32.const 0
-  local.set $prev
+  i32.store
   
-  (block $found
-    (loop $search
-      local.get $curr
-      i32.eqz
-      br_if $found
-      
-      local.get $curr
-      i32.const 4
-      i32.add
-      i32.load ;; Load size from offset 4
-      local.set $block_size
-      
-      local.get $block_size
-      local.get $size
-      i32.ge_u
-      if
-        ;; Found a block
-        local.get $prev
-        i32.eqz
-        if
-          local.get $curr
-          i32.const 8 ;; next free is at offset 8 (was 4)
-          i32.add
-          i32.load
-          global.set $free_list
-        else
-          local.get $prev
-          i32.const 8
-          i32.add
-          local.get $curr
-          i32.const 8
-          i32.add
-          i32.load
-          i32.store
-        end
-        
-        ;; Add to allocated list
-        local.get $curr
-        global.get $allocated_list
-        i32.store ;; store next_allocated at offset 0
-        local.get $curr
-        global.set $allocated_list
-        
-        ;; Initialize mark bit (offset 8) to 0
-        local.get $curr
-        i32.const 8
-        i32.add
-        i32.const 0
-        i32.store
-
-        ;; Initialize type_id (offset 12)
-        local.get $curr
-        i32.const 12
-        i32.add
-        local.get $type_id
-        i32.store
-        
-        ;; Return payload pointer (curr + 16)
-        local.get $curr
-        i32.const 16
-        i32.add
-        return
-      end
-      
-      local.get $curr
-      local.set $prev
-      local.get $curr
-      i32.const 8 ;; next free is at offset 8
-      i32.add
-      i32.load
-      local.set $curr
-      br $search
-    )
-  )
-  
-  ;; No free block found, allocate new memory
-  local.get $size
-  i32.const 8
-  i32.add
-  local.set $block_size
-  
-  global.get $heap_ptr
-  local.set $curr
-  
-  ;; Set size at offset 4
-  local.get $curr
+  ;; Offset 4: size
+  local.get $ptr
   i32.const 4
   i32.add
   local.get $size
   i32.store
   
-  ;; Add to allocated list
-  local.get $curr
-  global.get $allocated_list
-  i32.store ;; store next_allocated at offset 0
-  local.get $curr
-  global.set $allocated_list
-
-  ;; Initialize mark bit (offset 8) to 0
-  local.get $curr
+  ;; Offset 8: mark (0)
+  local.get $ptr
   i32.const 8
   i32.add
   i32.const 0
   i32.store
-
-  ;; Initialize type_id (offset 12)
-  local.get $curr
+  
+  ;; Offset 12: type_id
+  local.get $ptr
   i32.const 12
   i32.add
   local.get $type_id
   i32.store
-
-  ;; Update heap pointer
-  global.get $heap_ptr
-  local.get $size ;; size includes header
-  i32.add
-  global.set $heap_ptr
   
-  ;; Return payload pointer
-  local.get $curr
+  ;; Return payload (ptr + 16)
+  local.get $ptr
   i32.const 16
   i32.add
 )
@@ -185,8 +102,7 @@ const stdLibWAT = `
     return
   end
   
-  ;; Check if valid heap pointer (>= heap_ptr_start)
-  ;; Heap start is 10240
+  ;; Check valid heap (>= 10240)
   local.get $ptr
   i32.const 10240
   i32.lt_u
@@ -194,13 +110,13 @@ const stdLibWAT = `
     return
   end
   
-  ;; Get header (ptr - 16)
+  ;; Get header
   local.get $ptr
   i32.const 16
   i32.sub
   local.set $header
   
-  ;; Check if already marked (offset 8)
+  ;; Check mark
   local.get $header
   i32.const 8
   i32.add
@@ -209,15 +125,14 @@ const stdLibWAT = `
     return
   end
   
-  ;; Mark it
+  ;; Mark
   local.get $header
   i32.const 8
   i32.add
   i32.const 1
   i32.store
   
-  ;; Trace children
-  ;; Get type_id (offset 12)
+  ;; Trace
   local.get $header
   i32.const 12
   i32.add
@@ -230,105 +145,11 @@ const stdLibWAT = `
 )
 
 (func $gc_collect
-  (local $scan_ptr i32)
-  (local $curr i32)
-  (local $prev i32)
-  (local $next i32)
-  (local $marked i32)
-  
-  ;; 1. Mark Phase
-  ;; Scan Shadow Stack
-  global.get $shadow_stack_base
-  local.set $scan_ptr
-  
-  (block $done_scan
-    (loop $scan
-       local.get $scan_ptr
-       global.get $shadow_stack_ptr
-       i32.ge_u
-       br_if $done_scan
-       
-       local.get $scan_ptr
-       i32.load
-       call $gc_mark
-       
-       local.get $scan_ptr
-       i32.const 4
-       i32.add
-       local.set $scan_ptr
-       br $scan
-    )
-  )
-  
-  ;; 2. Sweep Phase
-  global.get $allocated_list
-  local.set $curr
-  i32.const 0
-  local.set $prev
-  
-  (block $done_sweep
-    (loop $sweep
-      local.get $curr
-      i32.eqz
-      br_if $done_sweep
-      
-      local.get $curr
-      i32.load ;; Load next
-      local.set $next
-      
-      ;; Check mark bit (offset 8)
-      local.get $curr
-      i32.const 8
-      i32.add
-      i32.load
-      local.set $marked
-      
-      local.get $marked
-      if
-        ;; Marked: Keep it, unmark for next time
-        local.get $curr
-        i32.const 8
-        i32.add
-        i32.const 0
-        i32.store
-        
-        local.get $curr
-        local.set $prev
-      else
-        ;; Unmarked: Free it
-        ;; Remove from allocated list
-        local.get $prev
-        i32.eqz
-        if
-          local.get $next
-          global.set $allocated_list
-        else
-          local.get $prev
-          local.get $next
-          i32.store
-        end
-        
-        ;; Add to free list (Reuse existing free logic logic simplified)
-        ;; For now, we just add to free list without coalescing for simplicity
-        local.get $curr
-        i32.const 8 ;; Reuse mark/next_free slot for free list next
-        i32.add
-        global.get $free_list
-        i32.store
-        
-        local.get $curr
-        global.set $free_list
-      end
-      
-      local.get $next
-      local.set $curr
-      br $sweep
-    )
-  )
+  ;; No-op for concurrent MVP
 )
 
 (func $free (param $ptr i32)
-  ;; No-op in GC world, or manual free
+  ;; No-op
 )
 
 (func $strlen (param $str i32) (result i32)
@@ -439,9 +260,6 @@ const stdLibWAT = `
   i32.sub
   local.set $len
   
-  ;; Bounds check (TODO: Trap/Panic if start < 0 or end > length or start > end)
-  ;; For now, assume valid
-  
   ;; Allocate new string (len + 1 for null terminator)
   local.get $len
   i32.const 1
@@ -498,7 +316,1191 @@ const stdLibWAT = `
   local.get $new_ptr
 )
 
-(func $string_charCodeAt (param $str i32) (param $index i32) (result i32)
+(func $string_indexOfChar (param $str i32) (param $char i32) (result i32)
+  (local $len i32)
+  (local $i i32)
+  
+  local.get $str
+  call $strlen
+  local.set $len
+  
+  i32.const 0
+  local.set $i
+  
+  (block $done
+    (loop $loop
+      local.get $i
+      local.get $len
+      i32.ge_u
+      br_if $done
+      
+      local.get $str
+      local.get $i
+      i32.add
+      i32.load8_u
+      local.get $char
+      i32.eq
+      if
+        local.get $i
+        return
+      end
+      
+      local.get $i
+      i32.const 1
+      i32.add
+      local.set $i
+      br $loop
+    )
+  )
+  
+  i32.const -1
+)
+
+(func $array_new (param $cap i32) (result i32)
+  (local $arr i32)
+  (local $data i32)
+  
+  ;; Allocate array struct (12 bytes)
+  i32.const 12
+  i32.const 1 ;; TypeID 1
+  call $malloc
+  local.set $arr
+  
+  ;; Set length = 0
+  local.get $arr
+  i32.const 0
+  i32.store
+  
+  ;; Set capacity
+  local.get $arr
+  i32.const 4
+  i32.add
+  local.get $cap
+  i32.store
+  
+  ;; Allocate data buffer (cap * 4)
+  local.get $cap
+  i32.const 4
+  i32.mul
+  i32.const 20 ;; TypeID 20
+  call $malloc
+  local.set $data
+  
+  ;; Set data ptr
+  local.get $arr
+  i32.const 8
+  i32.add
+  local.get $data
+  i32.store
+  
+  local.get $arr
+)
+
+(func $array_push (param $arr i32) (param $val i32)
+  (local $len i32)
+  (local $cap i32)
+  (local $data i32)
+  (local $new_cap i32)
+  (local $new_data i32)
+  (local $i i32)
+  
+  ;; Get length
+  local.get $arr
+  i32.load
+  local.set $len
+  
+  ;; Get capacity
+  local.get $arr
+  i32.const 4
+  i32.add
+  i32.load
+  local.set $cap
+  
+  ;; Get data ptr
+  local.get $arr
+  i32.const 8
+  i32.add
+  i32.load
+  local.set $data
+  
+  ;; Check capacity
+  local.get $len
+  local.get $cap
+  i32.ge_u
+  if
+    ;; Resize: double capacity
+    local.get $cap
+    i32.const 2
+    i32.mul
+    local.set $new_cap
+    
+    ;; Cap at least 4
+    local.get $new_cap
+    i32.const 4
+    i32.lt_u
+    if
+      i32.const 4
+      local.set $new_cap
+    end
+    
+    ;; Allocate new data
+    local.get $new_cap
+    i32.const 4
+    i32.mul
+    i32.const 20 ;; TypeID 20
+    call $malloc
+    local.set $new_data
+    
+    ;; Copy old data
+    i32.const 0
+    local.set $i
+    (block $done_copy
+      (loop $copy
+        local.get $i
+        local.get $len
+        i32.ge_u
+        br_if $done_copy
+        
+        ;; new_data[i] = old_data[i]
+        local.get $new_data
+        local.get $i
+        i32.const 4
+        i32.mul
+        i32.add
+        
+        local.get $data
+        local.get $i
+        i32.const 4
+        i32.mul
+        i32.add
+        i32.load
+        
+        i32.store
+        
+        local.get $i
+        i32.const 1
+        i32.add
+        local.set $i
+        br $copy
+      )
+    )
+    
+    ;; Update array struct
+    local.get $arr
+    i32.const 4
+    i32.add
+    local.get $new_cap
+    i32.store
+    
+    local.get $arr
+    i32.const 8
+    i32.add
+    local.get $new_data
+    i32.store
+    
+    ;; Update locals
+    local.get $new_data
+    local.set $data
+  end
+  
+  ;; Store value
+  local.get $data
+  local.get $len
+  i32.const 4
+  i32.mul
+  i32.add
+  local.get $val
+  i32.store
+  
+  ;; Increment length
+  local.get $arr
+  local.get $len
+  i32.const 1
+  i32.add
+  i32.store
+)
+
+(func $array_get (param $arr i32) (param $idx i32) (result i32)
+  (local $data i32)
+  (local $len i32)
+  
+  ;; Get length
+  local.get $arr
+  i32.load
+  local.set $len
+  
+  ;; Bounds check (TODO: Trap/Panic if out of bounds)
+  local.get $idx
+  local.get $len
+  i32.ge_u
+  if
+    i32.const 0
+    return
+  end
+
+  ;; Get data ptr
+  local.get $arr
+  i32.const 8
+  i32.add
+  i32.load
+  local.set $data
+  
+  ;; Load value
+  local.get $data
+  local.get $idx
+  i32.const 4
+  i32.mul
+  i32.add
+  i32.load
+)
+
+(func $array_set (param $arr i32) (param $idx i32) (param $val i32)
+  (local $data i32)
+  (local $len i32)
+  
+  ;; Get length
+  local.get $arr
+  i32.load
+  local.set $len
+  
+  ;; Bounds check
+  local.get $idx
+  local.get $len
+  i32.ge_u
+  if
+    return
+  end
+
+  ;; Get data ptr
+  local.get $arr
+  i32.const 8
+  i32.add
+  i32.load
+  local.set $data
+  
+  ;; Store value
+  local.get $data
+  local.get $idx
+  i32.const 4
+  i32.mul
+  i32.add
+  local.get $val
+  i32.store
+)
+
+(func $array_length (param $arr i32) (result i32)
+  local.get $arr
+  i32.load
+)
+
+(func $string_equals (param $s1 i32) (param $s2 i32) (result i32)
+  (local $len1 i32)
+  (local $len2 i32)
+  (local $i i32)
+  
+  local.get $s1
+  call $strlen
+  local.set $len1
+  
+  local.get $s2
+  call $strlen
+  local.set $len2
+  
+  local.get $len1
+  local.get $len2
+  i32.ne
+  if
+    i32.const 0
+    return
+  end
+  
+  i32.const 0
+  local.set $i
+  
+  (block $done
+    (loop $loop
+      local.get $i
+      local.get $len1
+      i32.ge_u
+      br_if $done
+      
+      local.get $s1
+      local.get $i
+      i32.add
+      i32.load8_u
+      
+      local.get $s2
+      local.get $i
+      i32.add
+      i32.load8_u
+      
+      i32.ne
+      if
+        i32.const 0
+        return
+      end
+      
+      local.get $i
+      i32.const 1
+      i32.add
+      local.set $i
+      br $loop
+    )
+  )
+  i32.const 1
+)
+
+(func $hash_string (param $str i32) (result i32)
+  ;; djb2 hash
+  (local $hash i32)
+  (local $c i32)
+  (local $i i32)
+  (local $len i32)
+  
+  i32.const 5381
+  local.set $hash
+  
+  local.get $str
+  call $strlen
+  local.set $len
+  
+  i32.const 0
+  local.set $i
+  
+  (block $done
+    (loop $loop
+      local.get $i
+      local.get $len
+      i32.ge_u
+      br_if $done
+      
+      local.get $str
+      local.get $i
+      i32.add
+      i32.load8_u
+      local.set $c
+      
+      ;; hash = ((hash << 5) + hash) + c
+      local.get $hash
+      i32.const 5
+      i32.shl
+      local.get $hash
+      i32.add
+      local.get $c
+      i32.add
+      local.set $hash
+      
+      local.get $i
+      i32.const 1
+      i32.add
+      local.set $i
+      br $loop
+    )
+  )
+  
+  local.get $hash
+)
+
+(func $map_new (result i32)
+  (local $map i32)
+  (local $buckets i32)
+  (local $i i32)
+  
+  ;; Allocate Map (12 bytes: capacity, count, buckets)
+  i32.const 12
+  i32.const 2 ;; TypeID 2 (Map)
+  call $malloc
+  local.set $map
+  
+  ;; Set capacity = 16
+  local.get $map
+  i32.const 16
+  i32.store
+  
+  ;; Set count = 0
+  local.get $map
+  i32.const 4
+  i32.add
+  i32.const 0
+  i32.store
+  
+  ;; Allocate buckets (16 * 4 bytes)
+  i32.const 64
+  i32.const 21 ;; TypeID 21 (MapBuckets)
+  call $malloc
+  local.set $buckets
+  
+  ;; Initialize buckets to 0
+  i32.const 0
+  local.set $i
+  (block $done_zero
+    (loop $zero
+      local.get $i
+      i32.const 64
+      i32.ge_u
+      br_if $done_zero
+      
+      local.get $buckets
+      local.get $i
+      i32.add
+      i32.const 0
+      i32.store
+      
+      local.get $i
+      i32.const 4
+      i32.add
+      local.set $i
+      br $zero
+    )
+  )
+  
+  ;; Set buckets ptr
+  local.get $map
+  i32.const 8
+  i32.add
+  local.get $buckets
+  i32.store
+  
+  local.get $map
+)
+
+(func $map_set (param $map i32) (param $key i32) (param $val i32)
+  (local $hash i32)
+  (local $cap i32)
+  (local $buckets i32)
+  (local $idx i32)
+  (local $entry i32)
+  
+  ;; Calculate hash
+  local.get $key
+  call $hash_string
+  local.set $hash
+  
+  ;; Get capacity
+  local.get $map
+  i32.load
+  local.set $cap
+  
+  ;; Get buckets
+  local.get $map
+  i32.const 8
+  i32.add
+  i32.load
+  local.set $buckets
+  
+  ;; Index = hash % cap
+  local.get $hash
+  local.get $cap
+  i32.const 1
+  i32.sub
+  i32.and
+  local.set $idx
+  
+  ;; Walk linked list at buckets[idx]
+  local.get $buckets
+  local.get $idx
+  i32.const 4
+  i32.mul
+  i32.add
+  i32.load
+  local.set $entry
+  
+  (block $found
+    (loop $search
+      local.get $entry
+      i32.eqz
+      br_if $found ;; Not found, create new
+      
+      ;; Check key
+      local.get $entry
+      i32.load ;; key is at offset 0
+      local.get $key
+      call $string_equals
+      if
+        ;; Found! Update value
+        local.get $entry
+        i32.const 4
+        i32.add
+        local.get $val
+        i32.store
+        return
+      end
+      
+      local.get $entry
+      i32.const 8
+      i32.add
+      i32.load ;; next is at offset 8
+      local.set $entry
+      br $search
+    )
+  )
+  
+  ;; Create new entry (12 bytes: key, value, next)
+  i32.const 12
+  i32.const 22 ;; TypeID 22 (MapEntry)
+  call $malloc
+  local.set $entry
+  
+  ;; Set key
+  local.get $entry
+  local.get $key
+  i32.store
+  
+  ;; Set value
+  local.get $entry
+  i32.const 4
+  i32.add
+  local.get $val
+  i32.store
+  
+  ;; Set next = buckets[idx]
+  local.get $entry
+  i32.const 8
+  i32.add
+  
+  local.get $buckets
+  local.get $idx
+  i32.const 4
+  i32.mul
+  i32.add
+  i32.load
+  
+  i32.store
+  
+  ;; Update buckets[idx] = entry
+  local.get $buckets
+  local.get $idx
+  i32.const 4
+  i32.mul
+  i32.add
+  local.get $entry
+  i32.store
+  
+  ;; Increment count
+  local.get $map
+  i32.const 4
+  i32.add
+  
+  local.get $map
+  i32.const 4
+  i32.add
+  i32.load
+  i32.const 1
+  i32.add
+  
+  i32.store
+)
+
+(func $map_get (param $map i32) (param $key i32) (result i32)
+  (local $hash i32)
+  (local $cap i32)
+  (local $buckets i32)
+  (local $idx i32)
+  (local $entry i32)
+  
+  ;; Calculate hash
+  local.get $key
+  call $hash_string
+  local.set $hash
+  
+  ;; Get capacity
+  local.get $map
+  i32.load
+  local.set $cap
+  
+  ;; Get buckets
+  local.get $map
+  i32.const 8
+  i32.add
+  i32.load
+  local.set $buckets
+  
+  ;; Index
+  local.get $hash
+  local.get $cap
+  i32.const 1
+  i32.sub
+  i32.and
+  local.set $idx
+  
+  ;; Walk
+  local.get $buckets
+  local.get $idx
+  i32.const 4
+  i32.mul
+  i32.add
+  i32.load
+  local.set $entry
+  
+  (block $not_found
+    (loop $search
+      local.get $entry
+      i32.eqz
+      br_if $not_found
+      
+      local.get $entry
+      i32.load
+      local.get $key
+      call $string_equals
+      if
+        ;; Found
+        local.get $entry
+        i32.const 4
+        i32.add
+        i32.load
+        return
+      end
+      
+      local.get $entry
+      i32.const 8
+      i32.add
+      i32.load
+      local.set $entry
+      br $search
+    )
+  )
+  
+  ;; Not found
+  i32.const 0
+)
+
+(func $itos (param $val i32) (result i32)
+  (local $ptr i32)
+  (local $len i32)
+  (local $temp i32)
+  (local $is_neg i32)
+  (local $end i32)
+  (local $start i32)
+  
+  ;; Handle 0 specially
+  local.get $val
+  i32.eqz
+  if
+    i32.const 2
+    i32.const 0
+    call $malloc
+    local.set $ptr
+    
+    local.get $ptr
+    i32.const 48 ;; '0'
+    i32.store8
+    
+    local.get $ptr
+    i32.const 1
+    i32.add
+    i32.const 0
+    i32.store8
+    
+    local.get $ptr
+    return
+  end
+  
+  ;; Check negative
+  local.get $val
+  i32.const 0
+  i32.lt_s
+  if
+    i32.const 1
+    local.set $is_neg
+    i32.const 0
+    local.get $val
+    i32.sub
+    local.set $val
+  end
+  
+  ;; Count digits
+  local.get $val
+  local.set $temp
+  i32.const 0
+  local.set $len
+  
+  (block $count_done
+    (loop $count_loop
+      local.get $temp
+      i32.eqz
+      br_if $count_done
+      
+      local.get $len
+      i32.const 1
+      i32.add
+      local.set $len
+      
+      local.get $temp
+      i32.const 10
+      i32.div_u
+      local.set $temp
+      br $count_loop
+    )
+  )
+  
+  ;; Add 1 for sign if negative
+  local.get $is_neg
+  if
+    local.get $len
+    i32.const 1
+    i32.add
+    local.set $len
+  end
+  
+  ;; Allocate string (len + 1)
+  local.get $len
+  i32.const 1
+  i32.add
+  i32.const 0 ;; TypeID 0
+  call $malloc
+  local.set $ptr
+  
+  ;; Null terminate
+  local.get $ptr
+  local.get $len
+  i32.add
+  i32.const 0
+  i32.store8
+  
+  ;; Fill digits backwards
+  local.get $ptr
+  local.get $len
+  i32.add
+  i32.const 1
+  i32.sub
+  local.set $end
+  
+  local.get $ptr
+  local.set $start
+  
+  local.get $is_neg
+  if
+    local.get $ptr
+    i32.const 45 ;; '-'
+    i32.store8
+    
+    local.get $start
+    i32.const 1
+    i32.add
+    local.set $start
+  end
+  
+  (block $fill_done
+    (loop $fill_loop
+      local.get $end
+      local.get $start
+      i32.lt_u
+      br_if $fill_done
+      
+      local.get $val
+      i32.const 10
+      i32.rem_u
+      local.set $temp
+      
+      local.get $end
+      local.get $temp
+      i32.const 48 ;; '0'
+      i32.add
+      i32.store8
+      
+      local.get $val
+      i32.const 10
+      i32.div_u
+      local.set $val
+      
+      local.get $end
+      i32.const 1
+      i32.sub
+      local.set $end
+      br $fill_loop
+    )
+  )
+  
+  local.get $ptr
+)
+
+(func $string_lastIndexOfChar (param $str i32) (param $char i32) (result i32)
+  (local $len i32)
+  (local $i i32)
+  
+  local.get $str
+  call $strlen
+  local.set $len
+  
+  local.get $len
+  i32.eqz
+  if
+    i32.const -1
+    return
+  end
+  
+  local.get $len
+  local.set $i
+  
+  (block $done
+    (loop $loop
+      local.get $i
+      i32.const 0
+      i32.eq
+      br_if $done
+      
+      local.get $i
+      i32.const 1
+      i32.sub
+      local.set $i
+      
+      local.get $str
+      local.get $i
+      i32.add
+      i32.load8_u
+      local.get $char
+      i32.eq
+      if
+        local.get $i
+        return
+      end
+      
+      br $loop
+    )
+  )
+  
+  i32.const -1
+)
+
+(func $path_basename (param $path i32) (result i32)
+  (local $idx i32)
+  (local $len i32)
+  
+  local.get $path
+  i32.const 47 ;; '/'
+  call $string_lastIndexOfChar
+  local.set $idx
+  
+  local.get $idx
+  i32.const -1
+  i32.eq
+  if
+    local.get $path
+    return
+  end
+  
+  local.get $path
+  call $strlen
+  local.set $len
+  
+  local.get $path
+  local.get $idx
+  i32.const 1
+  i32.add
+  local.get $len
+  call $string_substring
+)
+
+(func $path_dirname (param $path i32) (result i32)
+  (local $idx i32)
+  (local $sep i32)
+  
+  local.get $path
+  i32.const 47 ;; '/'
+  call $string_lastIndexOfChar
+  local.set $idx
+  
+  local.get $idx
+  i32.const -1
+  i32.eq
+  if
+    ;; "."
+    i32.const 2
+    i32.const 0
+    call $malloc
+    local.set $sep
+    local.get $sep
+    i32.const 46 ;; '.'
+    i32.store8
+    local.get $sep
+    i32.const 1
+    i32.add
+    i32.const 0
+    i32.store8
+    local.get $sep
+    return
+  end
+  
+  local.get $idx
+  i32.const 0
+  i32.eq
+  if
+    ;; "/"
+    i32.const 2
+    i32.const 0
+    call $malloc
+    local.set $sep
+    local.get $sep
+    i32.const 47 ;; '/'
+    i32.store8
+    local.get $sep
+    i32.const 1
+    i32.add
+    i32.const 0
+    i32.store8
+    local.get $sep
+    return
+  end
+  
+  local.get $path
+  i32.const 0
+  local.get $idx
+  call $string_substring
+)
+
+(func $path_extname (param $path i32) (result i32)
+  (local $idx i32)
+  (local $len i32)
+  
+  local.get $path
+  i32.const 46 ;; '.'
+  call $string_lastIndexOfChar
+  local.set $idx
+  
+  local.get $idx
+  i32.const -1
+  i32.eq
+  if
+    ;; ""
+    i32.const 1
+    i32.const 0
+    call $malloc
+    local.set $path
+    local.get $path
+    i32.const 0
+    i32.store8
+    local.get $path
+    return
+  end
+  
+  local.get $idx
+  i32.const 0
+  i32.eq
+  if
+    ;; "" (hidden file)
+    i32.const 1
+    i32.const 0
+    call $malloc
+    local.set $path
+    local.get $path
+    i32.const 0
+    i32.store8
+    local.get $path
+    return
+  end
+
+  local.get $path
+  call $strlen
+  local.set $len
+  
+  local.get $path
+  local.get $idx
+  local.get $len
+  call $string_substring
+)
+
+(func $path_join2 (param $p1 i32) (param $p2 i32) (result i32)
+  (local $len1 i32)
+  (local $len2 i32)
+  (local $sep i32)
+  
+  local.get $p1
+  call $strlen
+  local.set $len1
+  
+  local.get $p2
+  call $strlen
+  local.set $len2
+  
+  local.get $len1
+  i32.eqz
+  if
+    local.get $p2
+    return
+  end
+  
+  local.get $len2
+  i32.eqz
+  if
+    local.get $p1
+    return
+  end
+  
+  ;; Check last char of p1
+  local.get $p1
+  local.get $len1
+  i32.const 1
+  i32.sub
+  i32.add
+  i32.load8_u
+  i32.const 47 ;; '/'
+  i32.eq
+  if
+    ;; p1 ends with /, just concat
+    local.get $p1
+    local.get $p2
+    call $str_concat
+    return
+  end
+  
+  ;; Concat p1 + "/" + p2
+  i32.const 2
+  i32.const 0
+  call $malloc
+  local.set $sep
+  local.get $sep
+  i32.const 47
+  i32.store8
+  local.get $sep
+  i32.const 1
+  i32.add
+  i32.const 0
+  i32.store8
+  
+  local.get $p1
+  local.get $sep
+  call $str_concat
+  local.get $p2
+  call $str_concat
+)
+
+(func $process_env (result i32)
+  (local $count i32)
+  (local $buf_size i32)
+  (local $environ i32)
+  (local $environ_buf i32)
+  (local $map i32)
+  (local $i i32)
+  (local $env_ptr i32)
+  (local $len i32)
+  (local $eq_idx i32)
+  (local $key i32)
+  (local $val i32)
+  (local $count_ptr i32)
+  (local $buf_size_ptr i32)
+
+  ;; Allocate space for count and buf_size
+  i32.const 4
+  i32.const 0
+  call $malloc
+  local.set $count_ptr
+  
+  i32.const 4
+  i32.const 0
+  call $malloc
+  local.set $buf_size_ptr
+
+  ;; Get sizes
+  local.get $count_ptr
+  local.get $buf_size_ptr
+  call $environ_sizes_get
+  drop
+
+  local.get $count_ptr
+  i32.load
+  local.set $count
+  
+  local.get $buf_size_ptr
+  i32.load
+  local.set $buf_size
+
+  ;; Allocate environ (array of pointers)
+  local.get $count
+  i32.const 4
+  i32.mul
+  i32.const 0
+  call $malloc
+  local.set $environ
+
+  ;; Allocate environ_buf (char buffer)
+  local.get $buf_size
+  i32.const 0
+  call $malloc
+  local.set $environ_buf
+
+  ;; Get environ
+  local.get $environ
+  local.get $environ_buf
+  call $environ_get
+  drop
+
+  ;; Create Map
+  call $map_new
+  local.set $map
+
+  ;; Iterate
+  i32.const 0
+  local.set $i
+
+  (block $done
+    (loop $loop
+      local.get $i
+      local.get $count
+      i32.ge_u
+      br_if $done
+
+      ;; env_ptr = environ[i]
+      local.get $environ
+      local.get $i
+      i32.const 4
+      i32.mul
+      i32.add
+      i32.load
+      local.set $env_ptr
+      
+      ;; len = strlen(env_ptr)
+      local.get $env_ptr
+      call $strlen
+      local.set $len
+      
+      ;; eq_idx = string_indexOfChar(env_ptr, 61) ;; '=' is 61
+      local.get $env_ptr
+      i32.const 61
+      call $string_indexOfChar
+      local.set $eq_idx
+      
+      ;; if eq_idx != -1
+      local.get $eq_idx
+      i32.const -1
+      i32.ne
+      if
+        ;; key = substring(env_ptr, 0, eq_idx)
+        local.get $env_ptr
+        i32.const 0
+        local.get $eq_idx
+        call $string_substring
+        local.set $key
+        
+        ;; val = substring(env_ptr, eq_idx + 1, len)
+        local.get $env_ptr
+        local.get $eq_idx
+        i32.const 1
+        i32.add
+        local.get $len
+        call $string_substring
+        local.set $val
+        
+        ;; map_set(map, key, val)
+        local.get $map
+        local.get $key
+        local.get $val
+        call $map_set
+      end
+
+      local.get $i
+      i32.const 1
+      i32.add
+      local.set $i
+      br $loop
+    )
+  )
+
+  local.get $map
+)
+`
+
+
+/* (func $string_charCodeAt (param $str i32) (param $index i32) (result i32)
   ;; Load byte at str + index
   local.get $str
   local.get $index
@@ -1121,7 +2123,156 @@ const stdLibWAT = `
   i32.const 0
 )
 
-`
+(func $int_to_string (param $val i32) (result i32)
+  (local $ptr i32)
+  (local $len i32)
+  (local $temp i32)
+  (local $is_neg i32)
+  (local $end i32)
+  (local $start i32)
+  
+  ;; Handle 0 specially
+  local.get $val
+  i32.eqz
+  if
+    i32.const 2
+    i32.const 0
+    call $malloc
+    local.set $ptr
+    
+    local.get $ptr
+    i32.const 48 ;; '0'
+    i32.store8
+    
+    local.get $ptr
+    i32.const 1
+    i32.add
+    i32.const 0
+    i32.store8
+    
+    local.get $ptr
+    return
+  end
+  
+  ;; Check negative
+  local.get $val
+  i32.const 0
+  i32.lt_s
+  if
+    i32.const 1
+    local.set $is_neg
+    i32.const 0
+    local.get $val
+    i32.sub
+    local.set $val
+  end
+  
+  ;; Count digits
+  local.get $val
+  local.set $temp
+  i32.const 0
+  local.set $len
+  
+  (block $count_done
+    (loop $count_loop
+      local.get $temp
+      i32.eqz
+      br_if $count_done
+      
+      local.get $len
+      i32.const 1
+      i32.add
+      local.set $len
+      
+      local.get $temp
+      i32.const 10
+      i32.div_u
+      local.set $temp
+      br $count_loop
+    )
+  )
+  
+  ;; Add 1 for sign if negative
+  local.get $is_neg
+  if
+    local.get $len
+    i32.const 1
+    i32.add
+    local.set $len
+  end
+  
+  ;; Allocate string (len + 1)
+  local.get $len
+  i32.const 1
+  i32.add
+  i32.const 0 ;; TypeID 0
+  call $malloc
+  local.set $ptr
+  
+  ;; Null terminate
+  local.get $ptr
+  local.get $len
+  i32.add
+  i32.const 0
+  i32.store8
+  
+  ;; Fill digits backwards
+  local.get $ptr
+  local.get $len
+  i32.add
+  i32.const 1
+  i32.sub
+  local.set $end
+  
+  local.get $ptr
+  local.set $start
+  
+  local.get $is_neg
+  if
+    local.get $ptr
+    i32.const 45 ;; '-'
+    i32.store8
+    
+    local.get $start
+    i32.const 1
+    i32.add
+    local.set $start
+  end
+  
+  (block $fill_done
+    (loop $fill_loop
+      local.get $end
+      local.get $start
+      i32.lt_u
+      br_if $fill_done
+      
+      local.get $val
+      i32.const 10
+      i32.rem_u
+      local.set $temp
+      
+      local.get $end
+      local.get $temp
+      i32.const 48 ;; '0'
+      i32.add
+      i32.store8
+      
+      local.get $val
+      i32.const 10
+      i32.div_u
+      local.set $val
+      
+      local.get $end
+      i32.const 1
+      i32.sub
+      local.set $end
+      br $fill_loop
+    )
+  )
+  
+  local.get $ptr
+)
+*/
 
 type Symbol struct {
 	Index   int
@@ -1151,6 +2302,11 @@ type ClassSymbol struct {
 	TypeID     int                 // Unique Type ID for GC
 }
 
+type InterfaceSymbol struct {
+	Name    string
+	Methods map[string]*ast.MethodSignature
+}
+
 func NewFunctionScope(name string) *FunctionScope {
 	return &FunctionScope{
 		Name:         name,
@@ -1162,6 +2318,10 @@ func NewFunctionScope(name string) *FunctionScope {
 	}
 }
 
+type FunctionSignature struct {
+	ParamTypes []DataType
+}
+
 // Compiler converts AST to WAT (WebAssembly Text Format)
 type Compiler struct {
 	functions      []*FunctionScope
@@ -1170,10 +2330,13 @@ type Compiler struct {
 	stringPool     map[string]int // String literal -> memory offset
 	nextDataOffset int            // Next available memory offset
 	classes        map[string]ClassSymbol // Class name -> Symbol
+	interfaces     map[string]InterfaceSymbol // Interface name -> Symbol
 	currentClass   string                 // Current class being compiled
 	nextTypeID     int                    // Next available Type ID (start from 2)
 	importedFuncs  map[string]*ast.ImportStatement // Imported functions
-	definedFuncs   map[string]bool                 // Functions defined in source
+	definedFuncs   map[string]FunctionSignature    // Functions defined in source
+	enums          map[string]map[string]int       // Enum definitions
+	typeAliases    map[string]string               // Type aliases (Name -> TargetType)
 
 	// Type checking state
 	stackType DataType
@@ -1189,9 +2352,12 @@ func New(target string) *Compiler {
 		stringPool:     make(map[string]int),
 		nextDataOffset: 0,
 		classes:        make(map[string]ClassSymbol),
+		interfaces:     make(map[string]InterfaceSymbol),
 		nextTypeID:     10, // 0-9 reserved. 0=String, 1=Array, 2=Map, 10+=Classes
 		importedFuncs:  make(map[string]*ast.ImportStatement),
-		definedFuncs:   make(map[string]bool),
+		definedFuncs:   make(map[string]FunctionSignature),
+		enums:          make(map[string]map[string]int),
+		typeAliases:    make(map[string]string),
 		target:         target,
 	}
 	
@@ -1203,8 +2369,43 @@ func New(target string) *Compiler {
 	c.imports = append(c.imports, `(import "env" "host_from_int" (func $host_from_int (param i32) (result i32)))`)
 	c.imports = append(c.imports, `(import "env" "host_from_string" (func $host_from_string (param i32) (result i32)))`)
 	c.imports = append(c.imports, `(import "env" "host_to_int" (func $host_to_int (param i32) (result i32)))`)
+	c.imports = append(c.imports, `(import "env" "thread_spawn" (func $thread_spawn (param i32 i32) (result i32)))`)
 	
 	return c
+}
+
+func (c *Compiler) resolveType(typeName string) DataType {
+	visited := make(map[string]bool)
+	current := typeName
+	for {
+		if visited[current] {
+			return TypeUnknown // Cycle detected
+		}
+		visited[current] = true
+
+		switch current {
+		case "int":
+			return TypeInt
+		case "string":
+			return TypeString
+		case "bool":
+			return TypeBool
+		case "void":
+			return TypeVoid
+		case "array":
+			return TypeArray
+		case "map":
+			return TypeMap
+		}
+
+		if alias, ok := c.typeAliases[current]; ok {
+			current = alias
+			continue
+		}
+
+		// Not a basic type or alias, assume Class/Interface (pointer) -> TypeInt
+		return TypeInt
+	}
 }
 
 func (c *Compiler) Compile(node ast.Node) error {
@@ -1214,6 +2415,31 @@ func (c *Compiler) Compile(node ast.Node) error {
 		for _, stmt := range node.Statements {
 			if _, ok := stmt.(*ast.ImportStatement); ok {
 				if err := c.Compile(stmt); err != nil {
+					return err
+				}
+			}
+		}
+
+		// 1.2 Pass: Define Type Aliases
+		for _, stmt := range node.Statements {
+			if typeAliasStmt, ok := stmt.(*ast.TypeAliasStatement); ok {
+				c.typeAliases[typeAliasStmt.Name.Value] = typeAliasStmt.Value
+			}
+		}
+
+		// 1.3 Pass: Define Enums
+		for _, stmt := range node.Statements {
+			if enumStmt, ok := stmt.(*ast.EnumStatement); ok {
+				if err := c.defineEnum(enumStmt); err != nil {
+					return err
+				}
+			}
+		}
+
+		// 1.4 Pass: Define Interfaces
+		for _, stmt := range node.Statements {
+			if ifaceStmt, ok := stmt.(*ast.InterfaceStatement); ok {
+				if err := c.defineInterface(ifaceStmt); err != nil {
 					return err
 				}
 			}
@@ -1237,11 +2463,25 @@ func (c *Compiler) Compile(node ast.Node) error {
 			}
 		}
 
-		// 1.8 Pass: Collect Function Names
+		// 1.7 Pass: Check Interface Implementation
+		for _, stmt := range node.Statements {
+			if classStmt, ok := stmt.(*ast.ClassStatement); ok {
+				if err := c.checkInterfaceImplementation(classStmt); err != nil {
+					return err
+				}
+			}
+		}
+
+		// 1.8 Pass: Collect Function Names and Signatures
 		for _, stmt := range node.Statements {
 			if exprStmt, ok := stmt.(*ast.ExpressionStatement); ok {
 				if fn, ok := exprStmt.Expression.(*ast.FunctionLiteral); ok {
-					c.definedFuncs[fn.Name] = true
+					sig := FunctionSignature{ParamTypes: []DataType{}}
+					for _, p := range fn.Parameters {
+						t := c.resolveType(p.Type)
+						sig.ParamTypes = append(sig.ParamTypes, t)
+					}
+					c.definedFuncs[fn.Name] = sig
 				}
 			}
 		}
@@ -1274,7 +2514,106 @@ func (c *Compiler) Compile(node ast.Node) error {
 		importStr := fmt.Sprintf("(import \"env\" \"%s\" (func $%s%s%s))", funcName, funcName, paramsStr, resultStr)
 		c.imports = append(c.imports, importStr)
 		c.importedFuncs[funcName] = node
+	
+	case *ast.InterfaceStatement:
+		// Interfaces are compile-time only, no code generation needed.
+		return nil
+
+	case *ast.EnumStatement:
+		// Enums are compile-time definitions (constants)
+		return nil
+
+	case *ast.SpawnStatement:
+		// spawn func(args)
+		// We need to:
+		// 1. Get function index (table index) - MVP: pass function name/ID?
+		// WASM `call_indirect` uses table index. We need to put functions in a table.
+		// For MVP, we can't easily get table index dynamically without extensive changes.
+		// Alternative: Pass function Name (string) to host, and host calls back?
+		// But host can't call internal WASM functions easily by name unless exported.
 		
+		// Strategy:
+		// 1. Compile call arguments into an Array or struct.
+		// 2. Call $thread_spawn(func_id, args_ptr).
+		// We need to map functions to IDs.
+		
+		// For MVP: Only support spawning 'main' or exported functions?
+		// Or assume we export everything or use a table.
+		
+		// Let's use a simplified approach:
+		// 1. Compile arguments -> store in array/struct.
+		// 2. Identify the function being called.
+		// 3. We need a dispatch function `(func $dispatch (param $id i32) (param $args i32))` exported to host.
+		// 4. Host calls `dispatch` in new thread.
+		
+		// But adding a dispatch function requires knowing all possible spawn targets.
+		// Let's assume for now we only spawn `function` calls (not methods).
+		
+		callExpr := node.Call
+		var funcName string
+		if ident, ok := callExpr.Function.(*ast.Identifier); ok {
+			funcName = ident.Value
+		} else {
+			return fmt.Errorf("spawn only supports direct function calls")
+		}
+		
+		// Create a unique ID for this function name (or use string)
+		// Using string is easier for host to debug, but slower.
+		// Let's use string for MVP.
+		
+		// 1. Pack arguments
+		argCount := len(callExpr.Arguments)
+		c.emit(fmt.Sprintf("i32.const %d", argCount))
+		c.emit("call $array_new")
+		// Stack: [arr]
+		
+		// Temp local for array
+		arrTemp := c.current.NextLocalID
+		c.current.NextLocalID++
+		realArrTemp := arrTemp + c.current.ParamCount
+		c.current.Symbols[fmt.Sprintf("$spawn_arr_%d", arrTemp)] = Symbol{Index: arrTemp, Type: TypeArray, IsParam: false, ShadowIndex: c.current.ShadowStackSize}
+		c.current.ShadowStackSize++ // Track it
+		
+		c.emit(fmt.Sprintf("local.set %d", realArrTemp))
+		
+		// Push to shadow stack
+		c.emit("global.get $shadow_stack_ptr")
+		c.emit(fmt.Sprintf("local.get %d", realArrTemp))
+		c.emit("i32.store")
+		c.emit("global.get $shadow_stack_ptr")
+		c.emit("i32.const 4")
+		c.emit("i32.add")
+		c.emit("global.set $shadow_stack_ptr")
+		
+		for _, arg := range callExpr.Arguments {
+			c.emit(fmt.Sprintf("local.get %d", realArrTemp))
+			if err := c.Compile(arg); err != nil {
+				return err
+			}
+			c.emit("call $array_push")
+		}
+		
+		// 2. Function Name
+		offset, ok := c.stringPool[funcName]
+		if !ok {
+			offset = c.nextDataOffset
+			c.stringPool[funcName] = offset
+			c.nextDataOffset += len(funcName) + 1
+		}
+		c.emit(fmt.Sprintf("i32.const %d ;; \"%s\"", offset, funcName))
+		
+		// 3. Call thread_spawn(func_name_ptr, args_arr_ptr)
+		c.emit(fmt.Sprintf("local.get %d", realArrTemp))
+		c.emit("call $thread_spawn")
+		c.emit("drop") // thread_spawn returns handle/id, ignore for now
+		
+		c.stackType = TypeVoid
+		return nil
+
+	case *ast.TypeAliasStatement:
+		// Already handled in pass 1.2
+		return nil
+
 	case *ast.ExpressionStatement:
 		if err := c.Compile(node.Expression); err != nil {
 			return err
@@ -1381,7 +2720,31 @@ func (c *Compiler) Compile(node ast.Node) error {
 		return nil
 
 	case *ast.MemberExpression:
+		// Check for Enum Access (e.g., Color.Red)
+		if ident, ok := node.Object.(*ast.Identifier); ok {
+			if members, isEnum := c.enums[ident.Value]; isEnum {
+				val, ok := members[node.Property.Value]
+				if !ok {
+					return fmt.Errorf("enum %s has no member %s", ident.Value, node.Property.Value)
+				}
+				c.emit(fmt.Sprintf("i32.const %d", val))
+				c.stackType = TypeInt
+				return nil
+			}
+		}
+
+		// Check for process.env
+		if ident, ok := node.Object.(*ast.Identifier); ok && ident.Value == "process" && node.Property.Value == "env" {
+			if c.target != "wasi" {
+				return fmt.Errorf("process.env is only supported in WASI target")
+			}
+			c.emit("call $process_env")
+			c.stackType = TypeMap
+			return nil
+		}
+
 		// Special handling for super.method()
+
 		if _, ok := node.Object.(*ast.SuperExpression); ok {
 			if c.currentClass == "" {
 				return fmt.Errorf("super used outside of class")
@@ -1583,7 +2946,9 @@ func (c *Compiler) Compile(node ast.Node) error {
 			c.emit(fmt.Sprintf("local.get %d ;; value", realIndex))
 			c.emit("i32.store")
 			
-			c.emit("i32.const 0") // Assignment returns 0 (void)
+			// Assignment returns the value (TS/JS behavior)
+			// Stack already has the value from local.get above
+			c.stackType = sym.Type
 			return nil
 		}
 		
@@ -1626,6 +2991,26 @@ func (c *Compiler) Compile(node ast.Node) error {
 			c.stackType = TypeHost
 		}
 
+	case *ast.PrefixExpression:
+		if err := c.Compile(node.Right); err != nil {
+			return err
+		}
+		
+		switch node.Operator {
+		case "!":
+			c.emit("i32.eqz")
+			c.stackType = TypeBool
+		case "-":
+			if c.stackType != TypeInt {
+				return fmt.Errorf("operator - not defined for type %s", c.stackType)
+			}
+			c.emit("i32.const -1")
+			c.emit("i32.mul")
+			c.stackType = TypeInt
+		default:
+			return fmt.Errorf("unknown operator %s", node.Operator)
+		}
+
 	case *ast.InfixExpression:
 		if err := c.Compile(node.Left); err != nil {
 			return err
@@ -1643,6 +3028,24 @@ func (c *Compiler) Compile(node ast.Node) error {
 				c.emit("i32.add")
 				c.stackType = TypeInt
 			} else if leftType == TypeString && rightType == TypeString {
+				c.emit("call $str_concat")
+				c.stackType = TypeString
+			} else if leftType == TypeString && rightType == TypeInt {
+				// String + Int
+				c.emit("call $itos")
+				c.emit("call $str_concat")
+				c.stackType = TypeString
+			} else if leftType == TypeInt && rightType == TypeString {
+				// Int + String
+				// Swap via temp local
+				tempIndex := c.current.NextLocalID
+				c.current.NextLocalID++
+				realTempIndex := tempIndex + c.current.ParamCount
+				c.current.Symbols[fmt.Sprintf("$temp_swap_%d", tempIndex)] = Symbol{Index: tempIndex, Type: TypeString, IsParam: false, ShadowIndex: -1}
+				
+				c.emit(fmt.Sprintf("local.set %d", realTempIndex)) // Pop string
+				c.emit("call $itos")                      // Convert int
+				c.emit(fmt.Sprintf("local.get %d", realTempIndex)) // Push string back
 				c.emit("call $str_concat")
 				c.stackType = TypeString
 			} else {
@@ -1802,14 +3205,14 @@ func (c *Compiler) Compile(node ast.Node) error {
 				return nil
 			}
 
-			// Check for fs.writeFile (WASI only)
-			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "fs" && member.Property.Value == "writeFile" {
+			// Check for fs.writeFile / fs.writeFileSync (WASI only)
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "fs" && (member.Property.Value == "writeFile" || member.Property.Value == "writeFileSync") {
 				if c.target != "wasi" {
-					return fmt.Errorf("fs.writeFile is only supported in WASI target")
+					return fmt.Errorf("fs.%s is only supported in WASI target", member.Property.Value)
 				}
 				
-				if len(node.Arguments) != 2 {
-					return fmt.Errorf("fs.writeFile expects 2 arguments (path, content)")
+				if len(node.Arguments) < 2 || len(node.Arguments) > 3 {
+					return fmt.Errorf("fs.%s expects 2 or 3 arguments (path, content, [options])", member.Property.Value)
 				}
 				
 				// Compile path
@@ -1821,11 +3224,204 @@ func (c *Compiler) Compile(node ast.Node) error {
 				if err := c.Compile(node.Arguments[1]); err != nil {
 					return err
 				}
+
+				// Ignore options for now (TODO: support options)
 				
 				c.emit("call $fs_writeFile")
 				c.stackType = TypeVoid
 				return nil
 			}
+
+			// Check for fs.readFile / fs.readFileSync (WASI only)
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "fs" && (member.Property.Value == "readFile" || member.Property.Value == "readFileSync") {
+				if c.target != "wasi" {
+					return fmt.Errorf("fs.%s is only supported in WASI target", member.Property.Value)
+				}
+				
+				if len(node.Arguments) < 1 || len(node.Arguments) > 2 {
+					return fmt.Errorf("fs.%s expects 1 or 2 arguments (path, [options])", member.Property.Value)
+				}
+				
+				// Compile path
+				if err := c.Compile(node.Arguments[0]); err != nil {
+					return err
+				}
+				
+				// Ignore options for now
+				
+				c.emit("call $fs_readFile")
+				c.stackType = TypeString
+				return nil
+			}
+
+			// Check for fs.existsSync (WASI only)
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "fs" && member.Property.Value == "existsSync" {
+				if c.target != "wasi" {
+					return fmt.Errorf("fs.existsSync is only supported in WASI target")
+				}
+				
+				if len(node.Arguments) != 1 {
+					return fmt.Errorf("fs.existsSync expects 1 argument (path)")
+				}
+				
+				// Compile path
+				if err := c.Compile(node.Arguments[0]); err != nil {
+					return err
+				}
+				
+				c.emit("call $fs_existsSync")
+				c.stackType = TypeBool
+				return nil
+			}
+
+			// Check for fs.unlinkSync (WASI only)
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "fs" && member.Property.Value == "unlinkSync" {
+				if c.target != "wasi" {
+					return fmt.Errorf("fs.unlinkSync is only supported in WASI target")
+				}
+				
+				if len(node.Arguments) != 1 {
+					return fmt.Errorf("fs.unlinkSync expects 1 argument (path)")
+				}
+				
+				if err := c.Compile(node.Arguments[0]); err != nil {
+					return err
+				}
+				
+				c.emit("call $fs_unlink")
+				c.emit("drop") // Ignore result for now (void return in Node)
+				c.stackType = TypeVoid
+				return nil
+			}
+
+			// Check for fs.mkdirSync (WASI only)
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "fs" && member.Property.Value == "mkdirSync" {
+				if c.target != "wasi" {
+					return fmt.Errorf("fs.mkdirSync is only supported in WASI target")
+				}
+				
+				if len(node.Arguments) < 1 || len(node.Arguments) > 2 {
+					return fmt.Errorf("fs.mkdirSync expects 1 or 2 arguments (path, [options])")
+				}
+				
+				if err := c.Compile(node.Arguments[0]); err != nil {
+					return err
+				}
+				
+				c.emit("call $fs_mkdir")
+				c.emit("drop")
+				c.stackType = TypeVoid
+				return nil
+			}
+
+			// Check for fs.rmdirSync (WASI only)
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "fs" && member.Property.Value == "rmdirSync" {
+				if c.target != "wasi" {
+					return fmt.Errorf("fs.rmdirSync is only supported in WASI target")
+				}
+				
+				if len(node.Arguments) != 1 {
+					return fmt.Errorf("fs.rmdirSync expects 1 argument (path)")
+				}
+				
+				if err := c.Compile(node.Arguments[0]); err != nil {
+					return err
+				}
+				
+				c.emit("call $fs_rmdir")
+				c.emit("drop")
+				c.stackType = TypeVoid
+				return nil
+			}
+
+			// Check for std.args (WASI only)
+			// Usage: std.args() -> Array<string>
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "std" && member.Property.Value == "args" {
+				if c.target != "wasi" {
+					return fmt.Errorf("std.args is only supported in WASI target")
+				}
+				
+				if len(node.Arguments) != 0 {
+					return fmt.Errorf("std.args expects 0 arguments")
+				}
+				
+				c.emit("call $std_args")
+				c.stackType = TypeArray
+				return nil
+			}
+
+			// Check for path module methods
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "path" {
+				switch member.Property.Value {
+				case "basename":
+					if len(node.Arguments) != 1 {
+						return fmt.Errorf("path.basename expects 1 argument (path)")
+					}
+					if err := c.Compile(node.Arguments[0]); err != nil {
+						return err
+					}
+					c.emit("call $path_basename")
+					c.stackType = TypeString
+					return nil
+
+				case "dirname":
+					if len(node.Arguments) != 1 {
+						return fmt.Errorf("path.dirname expects 1 argument (path)")
+					}
+					if err := c.Compile(node.Arguments[0]); err != nil {
+						return err
+					}
+					c.emit("call $path_dirname")
+					c.stackType = TypeString
+					return nil
+
+				case "extname":
+					if len(node.Arguments) != 1 {
+						return fmt.Errorf("path.extname expects 1 argument (path)")
+					}
+					if err := c.Compile(node.Arguments[0]); err != nil {
+						return err
+					}
+					c.emit("call $path_extname")
+					c.stackType = TypeString
+					return nil
+
+				case "join":
+					if len(node.Arguments) == 0 {
+						return fmt.Errorf("path.join expects at least 1 argument")
+					}
+					
+					// Compile first argument
+					if err := c.Compile(node.Arguments[0]); err != nil {
+						return err
+					}
+					
+					// Iterate through rest arguments and call path_join2 iteratively
+					for i := 1; i < len(node.Arguments); i++ {
+						if err := c.Compile(node.Arguments[i]); err != nil {
+							return err
+						}
+						c.emit("call $path_join2")
+					}
+					
+					c.stackType = TypeString
+					return nil
+				}
+			}
+
+
+			// Check for process.env (WASI only)
+			// Usage: process.env -> Map<string, string>
+			// But here we are in CallExpression.
+			// If user does `process.env()`, that's not Node.js like.
+			// Node.js usage: `process.env` is an object.
+			// But in our AST, if we access `process.env`, it is a MemberExpression.
+			// If we do `process.env["KEY"]`, it is IndexExpression.
+			// If we do `process.env.KEY`, it is MemberExpression.
+			
+			// This block is for CallExpression.
+			// So `process.env()` calls. Not what we want.
+
 
 			// Method call: obj.method(args)
 			// 1. Compile obj to get 'this' pointer
@@ -1987,7 +3583,7 @@ func (c *Compiler) Compile(node ast.Node) error {
 			}
 			
 			isDefined := false
-			if c.definedFuncs[ident.Value] {
+			if _, ok := c.definedFuncs[ident.Value]; ok {
 				isDefined = true
 			}
 			
@@ -2062,6 +3658,11 @@ func (c *Compiler) Compile(node ast.Node) error {
 			
 			// 3. Defined Internal Function (or stdlib)
 			if isDefined {
+				sig := c.definedFuncs[ident.Value]
+				if len(node.Arguments) != len(sig.ParamTypes) {
+					return fmt.Errorf("function %s expects %d arguments, got %d", ident.Value, len(sig.ParamTypes), len(node.Arguments))
+				}
+
 				for _, arg := range node.Arguments {
 					if err := c.Compile(arg); err != nil { return err }
 				}
@@ -2095,6 +3696,15 @@ func (c *Compiler) Compile(node ast.Node) error {
 					// Alternative: Call a helper function $wasi_print
 					c.emit("call $wasi_print")
 					c.stackType = TypeVoid
+					return nil
+				}
+				if ident.Value == "int_to_string" {
+					if len(node.Arguments) != 1 {
+						return fmt.Errorf("int_to_string expects 1 argument")
+					}
+					if err := c.Compile(node.Arguments[0]); err != nil { return err }
+					c.emit("call $itos")
+					c.stackType = TypeString
 					return nil
 				}
 				return fmt.Errorf("unknown function or global in WASI mode: %s", ident.Value)
@@ -2365,6 +3975,43 @@ func (c *Compiler) Compile(node ast.Node) error {
 
 		c.emit("end") // end of loop
 		c.emit("end") // end of block
+
+	case *ast.ForStatement:
+		// Init
+		if node.Init != nil {
+			if err := c.Compile(node.Init); err != nil {
+				return err
+			}
+		}
+
+		c.emit("block $break")
+		c.emit("loop $top")
+
+		// Condition
+		if node.Condition != nil {
+			if err := c.Compile(node.Condition); err != nil {
+				return err
+			}
+			c.emit("i32.eqz")
+			c.emit("br_if $break")
+		}
+
+		// Body
+		if err := c.Compile(node.Body); err != nil {
+			return err
+		}
+
+		// Update
+		if node.Update != nil {
+			if err := c.Compile(node.Update); err != nil {
+				return err
+			}
+		}
+
+		c.emit("br $top")
+		c.emit("end")
+		c.emit("end")
+
 	}
 	return nil
 }
@@ -2376,30 +4023,30 @@ func (c *Compiler) compileFunction(fn *ast.FunctionLiteral) error {
 
 	// Save previous shadow stack pointer
 	// We need a local for this
-	shadowPtrLocal := scope.NextLocalID
-	scope.NextLocalID++
-	c.emit("global.get $shadow_stack_ptr")
-	c.emit(fmt.Sprintf("local.set %d ;; save previous shadow_stack_ptr", shadowPtrLocal))
-
+	// 1. Register parameters
 	for i, param := range fn.Parameters {
-		// MVP: Assume all parameters are int (but some might be objects)
-		// For now, assume everything is an object/pointer for simplicity in shadow stack?
-		// Or assume int?
-		// If we mark integers as roots, it's fine (conservative GC), but they might look like pointers.
-		// For safety, let's assume everything is tracked in shadow stack for now.
-		
-		scope.Symbols[param.Value] = Symbol{
+		t := c.resolveType(param.Type)
+		scope.Symbols[param.Name.Value] = Symbol{
 			Index: i, 
-			Type: TypeInt, 
+			Type: t, 
 			IsParam: true,
 			ShadowIndex: scope.ShadowStackSize,
 		}
-		scope.ParamTypes = append(scope.ParamTypes, TypeInt)
+		scope.ParamTypes = append(scope.ParamTypes, t)
 		scope.ParamCount++
-		
-		// Push param to shadow stack
-		// global.set $shadow_stack_ptr (ptr + 4)
-		// i32.store (ptr, param)
+		scope.ShadowStackSize++
+	}
+
+	// 2. Save previous shadow stack pointer
+	shadowPtrLocal := scope.NextLocalID
+	scope.NextLocalID++
+	realShadowPtrLocal := shadowPtrLocal + scope.ParamCount
+	
+	c.emit("global.get $shadow_stack_ptr")
+	c.emit(fmt.Sprintf("local.set %d ;; save previous shadow_stack_ptr", realShadowPtrLocal))
+
+	// 3. Push params to shadow stack
+	for i := 0; i < scope.ParamCount; i++ {
 		c.emit("global.get $shadow_stack_ptr")
 		c.emit(fmt.Sprintf("local.get %d", i))
 		c.emit("i32.store")
@@ -2408,8 +4055,6 @@ func (c *Compiler) compileFunction(fn *ast.FunctionLiteral) error {
 		c.emit("i32.const 4")
 		c.emit("i32.add")
 		c.emit("global.set $shadow_stack_ptr")
-		
-		scope.ShadowStackSize++
 	}
 
 	if err := c.Compile(fn.Body); err != nil {
@@ -2417,7 +4062,7 @@ func (c *Compiler) compileFunction(fn *ast.FunctionLiteral) error {
 	}
 
 	// Restore shadow stack pointer
-	c.emit(fmt.Sprintf("local.get %d", shadowPtrLocal))
+	c.emit(fmt.Sprintf("local.get %d", realShadowPtrLocal))
 	c.emit("global.set $shadow_stack_ptr")
 
 	// Implicit return 0 if no return statement (for void functions or just safety)
@@ -2443,6 +4088,35 @@ func (c *Compiler) GenerateWAT() string {
 		out.WriteString("\n")
 		out.WriteString(`  (import "wasi_snapshot_preview1" "fd_close" (func $fd_close (param i32) (result i32)))`)
 		out.WriteString("\n")
+		out.WriteString(`  (import "wasi_snapshot_preview1" "fd_read" (func $fd_read (param i32 i32 i32 i32) (result i32)))`)
+		out.WriteString("\n")
+		out.WriteString(`  (import "wasi_snapshot_preview1" "fd_filestat_get" (func $fd_filestat_get (param i32 i32) (result i32)))`)
+		out.WriteString("\n")
+		out.WriteString(`  (import "wasi_snapshot_preview1" "args_sizes_get" (func $args_sizes_get (param i32 i32) (result i32)))`)
+		out.WriteString("\n")
+		out.WriteString(`  (import "wasi_snapshot_preview1" "args_get" (func $args_get (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "environ_sizes_get" (func $environ_sizes_get (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "environ_get" (func $environ_get (param i32 i32) (result i32)))
+  (import "env" "thread_spawn" (func $thread_spawn (param i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_unlink_file" (func $path_unlink_file (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_create_directory" (func $path_create_directory (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_remove_directory" (func $path_remove_directory (param i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_filestat_get" (func $path_filestat_get (param i32 i32 i32 i32 i32) (result i32)))`)
+		out.WriteString("\n")
+
+		// User defined imports for WASI
+		for name, imported := range c.importedFuncs {
+			params := ""
+			for range imported.Parameters {
+				params += " (param i32)"
+			}
+			result := ""
+			if imported.ReturnType != "void" {
+				result = " (result i32)"
+			}
+			out.WriteString(fmt.Sprintf("  (import \"env\" \"%s\" (func $%s%s%s))\n", name, name, params, result))
+		}
+
 	} else {
 		// Browser imports
 		for name, imported := range c.importedFuncs {
@@ -2467,9 +4141,12 @@ func (c *Compiler) GenerateWAT() string {
 		out.WriteString("  (import \"env\" \"host_to_int\" (func $host_to_int (param i32) (result i32)))\n")
 	}
 
-	out.WriteString("  (memory (export \"memory\") 1)\n")
+	out.WriteString("  (import \"env\" \"memory\" (memory 1 1000 shared))\n")
+	out.WriteString("  (export \"memory\" (memory 0))\n")
 	if c.target == "wasi" {
-		out.WriteString("  (export \"_start\" (func $main))\n")
+		// Reactor model: export _initialize, do NOT export _start
+		out.WriteString("  (export \"_initialize\" (func $noop))\n")
+        out.WriteString("  (export \"_set_stack_pointer\" (func $set_stack_pointer))\n")
 	} else {
 		out.WriteString("  (export \"gc\" (func $gc_collect))\n")
 	}
@@ -2484,6 +4161,7 @@ func (c *Compiler) GenerateWAT() string {
 
 	// Emit Standard Library
 	out.WriteString(stdLibWAT)
+	out.WriteString("\n(func $noop)\n")
 	
 	if c.target == "wasi" {
 		out.WriteString(`
@@ -2646,6 +4324,341 @@ func (c *Compiler) GenerateWAT() string {
   call $fd_close
   drop
 )
+
+(func $fs_readFile (param $path i32) (result i32)
+  (local $path_len i32)
+  (local $fd_ptr i32)
+  (local $fd i32)
+  (local $stat_ptr i32)
+  (local $size i32)
+  (local $str i32)
+  (local $iovs i32)
+  (local $nread i32)
+
+  ;; Calculate path len
+  local.get $path
+  call $strlen
+  local.set $path_len
+
+  ;; Allocate fd_ptr
+  i32.const 4
+  i32.const 0
+  call $malloc
+  local.set $fd_ptr
+
+  ;; path_open
+  i32.const 3 ;; dirfd=.
+  i32.const 0 ;; dirflags
+  local.get $path
+  local.get $path_len
+  i32.const 0 ;; oflags
+  i64.const 2097154 ;; rights_base=READ(2)|FD_FILESTAT_GET(2097152)
+  i64.const 0 ;; rights_inheriting
+  i32.const 0 ;; fd_flags
+  local.get $fd_ptr
+  call $path_open
+  drop ;; result
+
+  ;; Get fd
+  local.get $fd_ptr
+  i32.load
+  local.set $fd
+
+  ;; Get file stats (size)
+  i32.const 64 ;; size of filestat
+  i32.const 0
+  call $malloc
+  local.set $stat_ptr
+
+  local.get $fd
+  local.get $stat_ptr
+  call $fd_filestat_get
+  drop
+
+  ;; Read size (offset 32, u64)
+  local.get $stat_ptr
+  i32.const 32
+  i32.add
+  i64.load
+  i32.wrap_i64 ;; Assume file size < 4GB
+  local.set $size
+
+  ;; Allocate string buffer (size + 1 for null terminator)
+  local.get $size
+  i32.const 1
+  i32.add
+  i32.const 0 ;; TypeID 0 (String)
+  call $malloc
+  local.set $str
+
+  ;; Allocate iovs
+  i32.const 8
+  i32.const 0
+  call $malloc
+  local.set $iovs
+
+  ;; Fill iovs
+  local.get $iovs
+  local.get $str
+  i32.store
+  local.get $iovs
+  i32.const 4
+  i32.add
+  local.get $size
+  i32.store
+
+  ;; Allocate nread
+  i32.const 4
+  i32.const 0
+  call $malloc
+  local.set $nread
+
+  ;; fd_read
+  local.get $fd
+  local.get $iovs
+  i32.const 1
+  local.get $nread
+  call $fd_read
+  drop
+
+  ;; Null terminate
+  local.get $str
+  local.get $size
+  i32.add
+  i32.const 0
+  i32.store8
+
+  ;; Close
+  local.get $fd
+  call $fd_close
+  drop
+
+  local.get $str
+)
+
+(func $fs_unlink (param $path i32) (result i32)
+  (local $path_len i32)
+  local.get $path
+  call $strlen
+  local.set $path_len
+  
+  i32.const 3 ;; dirfd
+  local.get $path
+  local.get $path_len
+  call $path_unlink_file
+)
+
+(func $fs_mkdir (param $path i32) (result i32)
+  (local $path_len i32)
+  local.get $path
+  call $strlen
+  local.set $path_len
+  
+  i32.const 3 ;; dirfd
+  local.get $path
+  local.get $path_len
+  call $path_create_directory
+)
+
+(func $fs_rmdir (param $path i32) (result i32)
+  (local $path_len i32)
+  local.get $path
+  call $strlen
+  local.set $path_len
+  
+  i32.const 3 ;; dirfd
+  local.get $path
+  local.get $path_len
+  call $path_remove_directory
+)
+
+(func $fs_existsSync (param $path i32) (result i32)
+  (local $path_len i32)
+  (local $stat_buf i32)
+  (local $res i32)
+  
+  local.get $path
+  call $strlen
+  local.set $path_len
+  
+  ;; Allocate stat buffer (64 bytes)
+  i32.const 64
+  i32.const 0
+  call $malloc
+  local.set $stat_buf
+  
+  i32.const 3 ;; dirfd
+  i32.const 0 ;; flags (follow symlinks)
+  local.get $path
+  local.get $path_len
+  local.get $stat_buf
+  call $path_filestat_get
+  local.set $res
+  
+  ;; 0 is success
+  local.get $res
+  i32.eqz
+)
+
+(func $std_args (result i32)
+  (local $argc i32)
+  (local $argv_buf_size i32)
+  (local $argv_ptr i32)
+  (local $argv_buf_ptr i32)
+  (local $arr i32)
+  (local $i i32)
+  (local $arg_ptr i32)
+  (local $arg_len i32)
+  (local $str i32)
+  (local $argc_ptr i32)
+  (local $argv_buf_size_ptr i32)
+  (local $dest i32)
+  (local $src i32)
+  (local $cnt i32)
+
+  ;; Allocate space for argc and argv_buf_size
+  i32.const 4
+  i32.const 0
+  call $malloc
+  local.set $argc_ptr
+  
+  i32.const 4
+  i32.const 0
+  call $malloc
+  local.set $argv_buf_size_ptr
+
+  ;; Call args_sizes_get
+  local.get $argc_ptr
+  local.get $argv_buf_size_ptr
+  call $args_sizes_get
+  drop
+
+  ;; Load argc and buf size
+  local.get $argc_ptr
+  i32.load
+  local.set $argc
+  
+  local.get $argv_buf_size_ptr
+  i32.load
+  local.set $argv_buf_size
+
+  ;; Allocate argv (array of pointers)
+  local.get $argc
+  i32.const 4
+  i32.mul
+  i32.const 0
+  call $malloc
+  local.set $argv_ptr
+
+  ;; Allocate argv_buf (char buffer)
+  local.get $argv_buf_size
+  i32.const 0
+  call $malloc
+  local.set $argv_buf_ptr
+
+  ;; Call args_get
+  local.get $argv_ptr
+  local.get $argv_buf_ptr
+  call $args_get
+  drop
+
+  ;; Create Array to return
+  local.get $argc
+  call $array_new
+  local.set $arr
+
+  ;; Loop through argv and push to array
+  i32.const 0
+  local.set $i
+  
+  (block $done
+    (loop $loop
+      local.get $i
+      local.get $argc
+      i32.ge_u
+      br_if $done
+
+      ;; Get pointer to current arg string
+      local.get $argv_ptr
+      local.get $i
+      i32.const 4
+      i32.mul
+      i32.add
+      i32.load
+      local.set $arg_ptr
+
+      ;; We need to copy this to a managed string because argv_buf is a single block
+      ;; and we want distinct string objects (TypeID 0).
+      ;; Calculate length: iterate until null terminator
+      local.get $arg_ptr
+      call $strlen
+      local.set $arg_len
+
+      ;; Allocate new string
+      local.get $arg_len
+      i32.const 1
+      i32.add
+      i32.const 0 ;; TypeID 0
+      call $malloc
+      local.set $str
+
+      ;; Copy chars
+      ;; Inline memcpy
+      local.get $arg_len
+      i32.const 1
+      i32.add ;; copy null terminator too
+      local.set $cnt
+      
+      local.get $arg_ptr
+      local.set $src
+      
+      local.get $str
+      local.set $dest
+      
+      (block $cp_done
+        (loop $cp_loop
+           local.get $cnt
+           i32.eqz
+           br_if $cp_done
+           
+           local.get $dest
+           local.get $src
+           i32.load8_u
+           i32.store8
+           
+           local.get $dest
+           i32.const 1
+           i32.add
+           local.set $dest
+           
+           local.get $src
+           i32.const 1
+           i32.add
+           local.set $src
+           
+           local.get $cnt
+           i32.const 1
+           i32.sub
+           local.set $cnt
+           br $cp_loop
+        )
+      )
+
+      ;; Push to array
+      local.get $arr
+      local.get $str
+      call $array_push
+
+      local.get $i
+      i32.const 1
+      i32.add
+      local.set $i
+      br $loop
+    )
+  )
+
+  local.get $arr
+)
 `)
 	}
 
@@ -2653,14 +4666,12 @@ func (c *Compiler) GenerateWAT() string {
 	c.emitGCTrace(&out)
 
 	for _, fn := range c.functions {
-		exportName := ""
-		if fn.Name == "main" && c.target != "wasi" {
-			exportName = "(export \"main\")"
-		} else if fn.Name == "main" && c.target == "wasi" {
-			// For WASI, main is exported as _start via the export section above,
-			// but we need to define the function itself.
-			// Also, _start expects no params, but our main might.
-			// For MVP, assume main() takes no args.
+		// Export all functions for now (needed for spawn)
+		exportName := fmt.Sprintf("(export \"%s\")", fn.Name)
+		
+		if fn.Name == "main" && c.target == "wasi" {
+			// For WASI, main is exported as _start via the export section above.
+			// We also export it as "main" via exportName above.
 		}
 
 		paramsStr := ""
@@ -2861,6 +4872,34 @@ func (c *Compiler) emitGCTrace(out *bytes.Buffer) {
 	out.WriteString(")\n")
 }
 
+func (c *Compiler) defineEnum(node *ast.EnumStatement) error {
+	enumName := node.Name.Value
+	if _, exists := c.enums[enumName]; exists {
+		return fmt.Errorf("enum %s already defined", enumName)
+	}
+
+	members := make(map[string]int)
+	currentValue := 0
+
+	for _, member := range node.Members {
+		if member.Value != nil {
+			// Evaluate constant value
+			// For now, only support integer literals
+			if intLit, ok := member.Value.(*ast.IntegerLiteral); ok {
+				currentValue = int(intLit.Value)
+			} else {
+				return fmt.Errorf("enum member value must be integer literal")
+			}
+		}
+		
+		members[member.Name.Value] = currentValue
+		currentValue++
+	}
+
+	c.enums[enumName] = members
+	return nil
+}
+
 func (c *Compiler) defineClass(node *ast.ClassStatement) error {
 	className := node.Name.Value
 	classSymbol := ClassSymbol{
@@ -2903,20 +4942,7 @@ func (c *Compiler) defineClass(node *ast.ClassStatement) error {
 		classSymbol.Fields[field.Name.Value] = offset
 		
 		// Parse type
-		typeName := field.Type
-		dataType := TypeInt // Default
-		if typeName == "string" {
-			dataType = TypeString
-		} else if typeName == "int" {
-			dataType = TypeInt
-		} else if typeName == "bool" {
-			dataType = TypeBool
-		} else if typeName == "array" {
-			dataType = TypeArray
-		} else if typeName != "" {
-			// For now, treat other types as pointers (int)
-			dataType = TypeInt
-		}
+		dataType := c.resolveType(field.Type)
 		classSymbol.FieldTypes[field.Name.Value] = dataType
 		
 		offset += 4 
@@ -2951,8 +4977,9 @@ func (c *Compiler) compileClassMethods(node *ast.ClassStatement) error {
 		scope.ParamCount++
 
 		for i, param := range method.Parameters {
-			scope.Symbols[param.Value] = Symbol{Index: i + 1, Type: TypeInt, IsParam: true}
-			scope.ParamTypes = append(scope.ParamTypes, TypeInt)
+			t := c.resolveType(param.Type)
+			scope.Symbols[param.Name.Value] = Symbol{Index: i + 1, Type: t, IsParam: true}
+			scope.ParamTypes = append(scope.ParamTypes, t)
 			scope.ParamCount++
 		}
 
@@ -2961,6 +4988,45 @@ func (c *Compiler) compileClassMethods(node *ast.ClassStatement) error {
 		}
 
 		c.emit("i32.const 0")
+	}
+	return nil
+}
+
+func (c *Compiler) defineInterface(node *ast.InterfaceStatement) error {
+	if _, ok := c.interfaces[node.Name.Value]; ok {
+		return fmt.Errorf("interface %s already defined", node.Name.Value)
+	}
+	
+	sym := InterfaceSymbol{
+		Name:    node.Name.Value,
+		Methods: make(map[string]*ast.MethodSignature),
+	}
+	
+	for _, m := range node.Methods {
+		sym.Methods[m.Name] = m
+	}
+	
+	c.interfaces[node.Name.Value] = sym
+	return nil
+}
+
+func (c *Compiler) checkInterfaceImplementation(node *ast.ClassStatement) error {
+	className := node.Name.Value
+	classSym, ok := c.classes[className]
+	if !ok { return fmt.Errorf("internal error: class %s not found", className) }
+
+	for _, impl := range node.Implements {
+		ifaceName := impl.Value
+		ifaceSym, ok := c.interfaces[ifaceName]
+		if !ok {
+			return fmt.Errorf("class %s implements undefined interface %s", className, ifaceName)
+		}
+		
+		for methodName := range ifaceSym.Methods {
+			if _, hasMethod := classSym.Methods[methodName]; !hasMethod {
+				return fmt.Errorf("class %s does not implement method %s from interface %s", className, methodName, ifaceName)
+			}
+		}
 	}
 	return nil
 }

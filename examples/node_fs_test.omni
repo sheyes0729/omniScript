@@ -1,0 +1,44 @@
+declare function print(s);
+
+function main() {
+    let dir = "test_dir";
+    let file = "test_dir/file.txt";
+
+    // Clean up if exists
+    if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+    }
+    if (fs.existsSync(dir)) {
+        fs.rmdirSync(dir);
+    }
+
+    print("Creating directory...");
+    fs.mkdirSync(dir);
+
+    print("Writing file...");
+    fs.writeFileSync(file, "Hello Node.js FS!");
+
+    if (fs.existsSync(file)) {
+        print("File exists!");
+        let content = fs.readFileSync(file, "utf8");
+        print("Content: " + content);
+    } else {
+        print("Error: File not created");
+    }
+
+    print("Removing file...");
+    fs.unlinkSync(file);
+
+    if (!fs.existsSync(file)) {
+        print("File removed successfully");
+    }
+
+    print("Removing directory...");
+    fs.rmdirSync(dir);
+
+    if (!fs.existsSync(dir)) {
+        print("Directory removed successfully");
+    }
+
+    print("Done.");
+}

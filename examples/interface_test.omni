@@ -1,0 +1,44 @@
+interface Animal {
+  speak(): void;
+  getName(): string;
+}
+
+class Dog implements Animal {
+  name: string;
+  
+  init(n: string) {
+    this.name = n;
+  }
+  
+  speak() {
+    print(this.name + " says Woof!");
+  }
+  
+  getName() {
+    return this.name;
+  }
+}
+
+class Cat implements Animal {
+  name: string;
+  
+  init(n: string) {
+    this.name = n;
+  }
+  
+  getName() {
+    return this.name;
+  }
+  
+  speak() {
+    print(this.name + " says Meow!");
+  }
+}
+
+function main() {
+  let d = new Dog("Buddy");
+  d.speak();
+  
+  let c = new Cat("Whiskers");
+  c.speak();
+}

@@ -1,0 +1,16 @@
+enum Color {
+    Red = 1,
+    Green = 2,
+    Blue = 3
+}
+
+declare function print(s: string);
+
+function main() {
+    let c = Color.Green;
+    if (c == 2) {
+        print("Color is Green (2)");
+    } else {
+        print("Color is NOT Green");
+    }
+}

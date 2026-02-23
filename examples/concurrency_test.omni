@@ -1,0 +1,26 @@
+function worker(id: int) {
+  print("Worker " + id + " started!");
+  // Simulate work
+  let i = 0;
+  while (i < 5) {
+    print("Worker " + id + " counting: " + i);
+    i = i + 1;
+  }
+  print("Worker " + id + " finished!");
+}
+
+function main() {
+  print("Main: Spawning workers...");
+  
+  spawn worker(1);
+  spawn worker(2);
+  
+  print("Main: Workers spawned!");
+  
+  // Keep main alive for a bit to see output (since we don't have join() yet)
+  let j = 0;
+  while (j < 1000000) {
+    j = j + 1;
+  }
+  print("Main: Exiting.");
+}

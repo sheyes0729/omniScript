@@ -1,0 +1,14 @@
+type MyInt = int;
+type MyString = string;
+
+declare function print(s: MyString);
+
+function main() {
+    let x: MyInt = 42;
+    let s: MyString = "Hello Type Alias";
+    print(s);
+    
+    if (x == 42) {
+        print("x is 42");
+    }
+}

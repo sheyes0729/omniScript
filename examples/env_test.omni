@@ -1,0 +1,32 @@
+declare function print(s);
+
+function main() {
+    print("Checking environment variables...");
+
+    // process.env returns a Map
+    let env = process.env;
+    
+    // Check PATH or Path (Windows)
+    let path = env["PATH"];
+    if (!path) {
+        path = env["Path"];
+    }
+    
+    if (path) {
+        print("PATH found!");
+        // print(path); // Might be long
+    } else {
+        print("PATH not found");
+    }
+
+    // Check a custom one
+    let testVar = env["TEST_VAR"];
+    if (testVar) {
+        print("TEST_VAR found:");
+        print(testVar);
+    } else {
+        print("TEST_VAR not found");
+    }
+
+    print("Done.");
+}

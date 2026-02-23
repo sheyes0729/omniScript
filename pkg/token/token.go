@@ -56,6 +56,12 @@ const (
 	THIS     = "THIS"
 	EXTENDS  = "EXTENDS"
 	SUPER    = "SUPER"
+	INTERFACE  = "INTERFACE"
+	IMPLEMENTS = "IMPLEMENTS"
+	SPAWN      = "SPAWN"
+	ENUM       = "ENUM"
+	TYPE       = "TYPE"
+	FOR        = "FOR"
 )
 
 type Token struct {
@@ -85,6 +91,12 @@ var keywords = map[string]TokenType{
 	"this":     THIS,
 	"extends":  EXTENDS,
 	"super":    SUPER,
+	"interface": INTERFACE,
+	"implements": IMPLEMENTS,
+	"spawn":      SPAWN,
+	"enum":       ENUM,
+	"type":       TYPE,
+	"for":        FOR,
 }
 
 func LookupIdent(ident string) TokenType {

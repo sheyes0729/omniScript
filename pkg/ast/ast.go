@@ -43,110 +43,85 @@ func (p *Program) String() string {
 	return out.String()
 }
 
-// LetStatement 表示 let 语句
-type LetStatement struct {
-	Token token.Token // token.LET
+// EnumMember represents a member of an enum
+type EnumMember struct {
 	Name  *Identifier
-	Value Expression
+	Value Expression // Can be nil (auto-increment)
 }
 
-func (ls *LetStatement) statementNode()       {}
-func (ls *LetStatement) TokenLiteral() string { return ls.Token.Literal }
-func (ls *LetStatement) String() string {
+func (em *EnumMember) String() string {
 	var out bytes.Buffer
-	out.WriteString(ls.TokenLiteral() + " ")
-	out.WriteString(ls.Name.String())
-	out.WriteString(" = ")
-	if ls.Value != nil {
-		out.WriteString(ls.Value.String())
+	out.WriteString(em.Name.String())
+	if em.Value != nil {
+		out.WriteString(" = ")
+		out.WriteString(em.Value.String())
 	}
-	out.WriteString(";")
 	return out.String()
 }
 
-// ReturnStatement 表示 return 语句
-type ReturnStatement struct {
-	Token       token.Token // token.RETURN
-	ReturnValue Expression
+// EnumStatement represents an enum definition
+type EnumStatement struct {
+	Token   token.Token // token.ENUM
+	Name    *Identifier
+	Members []*EnumMember
 }
 
-func (rs *ReturnStatement) statementNode()       {}
-func (rs *ReturnStatement) TokenLiteral() string { return rs.Token.Literal }
-func (rs *ReturnStatement) String() string {
+func (es *EnumStatement) statementNode()       {}
+func (es *EnumStatement) TokenLiteral() string { return es.Token.Literal }
+func (es *EnumStatement) String() string {
 	var out bytes.Buffer
-	out.WriteString(rs.TokenLiteral() + " ")
-	if rs.ReturnValue != nil {
-		out.WriteString(rs.ReturnValue.String())
-	}
-	out.WriteString(";")
-	return out.String()
-}
-
-// WhileStatement 循环
-type WhileStatement struct {
-	Token     token.Token // 'while'
-	Condition Expression
-	Body      *BlockStatement
-}
-
-func (ws *WhileStatement) statementNode()       {}
-func (ws *WhileStatement) TokenLiteral() string { return ws.Token.Literal }
-func (ws *WhileStatement) String() string {
-	var out bytes.Buffer
-	out.WriteString("while (")
-	if ws.Condition != nil {
-		out.WriteString(ws.Condition.String())
-	}
-	out.WriteString(") ")
-	out.WriteString(ws.Body.String())
-	return out.String()
-}
-
-// ImportStatement 外部函数声明
-type ImportStatement struct {
-	Token      token.Token // 'declare'
-	Name       *Identifier
-	Parameters []*FieldDefinition // Reuse FieldDefinition for parameters (Name: Type)
-	ReturnType string             // "void", "int", "string"
-}
-
-func (is *ImportStatement) statementNode()       {}
-func (is *ImportStatement) TokenLiteral() string { return is.Token.Literal }
-func (is *ImportStatement) String() string {
-	var out bytes.Buffer
-	out.WriteString("declare function ")
-	out.WriteString(is.Name.String())
-	out.WriteString("(")
-	for i, p := range is.Parameters {
-		out.WriteString(p.Name.String())
-		if p.Type != "" {
-			out.WriteString(": " + p.Type)
-		}
-		if i < len(is.Parameters)-1 {
+	out.WriteString("enum ")
+	out.WriteString(es.Name.String())
+	out.WriteString(" { ")
+	for i, m := range es.Members {
+		out.WriteString(m.String())
+		if i < len(es.Members)-1 {
 			out.WriteString(", ")
 		}
 	}
-	out.WriteString(")")
-	if is.ReturnType != "" {
-		out.WriteString(": " + is.ReturnType)
-	}
-	out.WriteString(";")
+	out.WriteString(" }")
 	return out.String()
 }
 
-// ExpressionStatement 是为了让表达式可以作为语句出现（例如单独一行的函数调用）
-type ExpressionStatement struct {
-	Token      token.Token // 表达式的第一个 token
-	Expression Expression
+// InterfaceStatement definition
+type InterfaceStatement struct {
+	Token   token.Token // token.INTERFACE
+	Name    *Identifier
+	Methods []*MethodSignature
 }
 
-func (es *ExpressionStatement) statementNode()       {}
-func (es *ExpressionStatement) TokenLiteral() string { return es.Token.Literal }
-func (es *ExpressionStatement) String() string {
-	if es.Expression != nil {
-		return es.Expression.String()
+func (is *InterfaceStatement) statementNode()       {}
+func (is *InterfaceStatement) TokenLiteral() string { return is.Token.Literal }
+func (is *InterfaceStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("interface ")
+	out.WriteString(is.Name.String())
+	out.WriteString(" { ")
+	for _, m := range is.Methods {
+		out.WriteString(m.String())
+		out.WriteString("; ")
 	}
-	return ""
+	out.WriteString(" }")
+	return out.String()
+}
+
+// TypeAliasStatement represents type Name = Type;
+type TypeAliasStatement struct {
+	Token token.Token // token.TYPE
+	Name  *Identifier
+	Value string // The type name
+}
+
+func (tas *TypeAliasStatement) statementNode()       {}
+func (tas *TypeAliasStatement) TokenLiteral() string { return tas.Token.Literal }
+func (tas *TypeAliasStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("type ")
+	out.WriteString(tas.Name.String())
+	out.WriteString(" = ")
+	out.WriteString(tas.Value)
+	out.WriteString(";")
+	return out.String()
 }
 
 // Identifier 标识符
@@ -161,7 +136,7 @@ func (i *Identifier) String() string       { return i.Value }
 
 // IntegerLiteral 整数
 type IntegerLiteral struct {
-	Token token.Token
+	Token token.Token // token.INT
 	Value int64
 }
 
@@ -169,9 +144,19 @@ func (il *IntegerLiteral) expressionNode()      {}
 func (il *IntegerLiteral) TokenLiteral() string { return il.Token.Literal }
 func (il *IntegerLiteral) String() string       { return il.Token.Literal }
 
-// PrefixExpression 前缀表达式 (!true, -5)
+// StringLiteral 字符串
+type StringLiteral struct {
+	Token token.Token // token.STRING
+	Value string
+}
+
+func (sl *StringLiteral) expressionNode()      {}
+func (sl *StringLiteral) TokenLiteral() string { return sl.Token.Literal }
+func (sl *StringLiteral) String() string       { return sl.Token.Literal }
+
+// PrefixExpression 前缀表达式
 type PrefixExpression struct {
-	Token    token.Token // 前缀 token, 如 ! 或 -
+	Token    token.Token // 前缀操作符 token, e.g. !
 	Operator string
 	Right    Expression
 }
@@ -187,9 +172,9 @@ func (pe *PrefixExpression) String() string {
 	return out.String()
 }
 
-// InfixExpression 中缀表达式 (5 + 5, a == b)
+// InfixExpression 中缀表达式
 type InfixExpression struct {
-	Token    token.Token // 运算符 token, 如 +
+	Token    token.Token // 中缀操作符 token, e.g. +
 	Left     Expression
 	Operator string
 	Right    Expression
@@ -217,7 +202,78 @@ func (b *Boolean) expressionNode()      {}
 func (b *Boolean) TokenLiteral() string { return b.Token.Literal }
 func (b *Boolean) String() string       { return b.Token.Literal }
 
-// IfExpression If 表达式
+// LetStatement let 语句
+type LetStatement struct {
+	Token token.Token // token.LET
+	Name  *Identifier
+	Type  string // Optional type annotation
+	Value Expression
+}
+
+func (ls *LetStatement) statementNode()       {}
+func (ls *LetStatement) TokenLiteral() string { return ls.Token.Literal }
+func (ls *LetStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString(ls.TokenLiteral() + " ")
+	out.WriteString(ls.Name.String())
+	out.WriteString(" = ")
+	if ls.Value != nil {
+		out.WriteString(ls.Value.String())
+	}
+	out.WriteString(";")
+	return out.String()
+}
+
+// ReturnStatement return 语句
+type ReturnStatement struct {
+	Token       token.Token // token.RETURN
+	ReturnValue Expression
+}
+
+func (rs *ReturnStatement) statementNode()       {}
+func (rs *ReturnStatement) TokenLiteral() string { return rs.Token.Literal }
+func (rs *ReturnStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString(rs.TokenLiteral() + " ")
+	if rs.ReturnValue != nil {
+		out.WriteString(rs.ReturnValue.String())
+	}
+	out.WriteString(";")
+	return out.String()
+}
+
+// ExpressionStatement 表达式语句
+type ExpressionStatement struct {
+	Token      token.Token // 表达式的第一个 token
+	Expression Expression
+}
+
+func (es *ExpressionStatement) statementNode()       {}
+func (es *ExpressionStatement) TokenLiteral() string { return es.Token.Literal }
+func (es *ExpressionStatement) String() string {
+	if es.Expression != nil {
+		return es.Expression.String()
+	}
+	return ""
+}
+
+// BlockStatement 块语句
+type BlockStatement struct {
+	Token      token.Token // {
+	Statements []Statement
+}
+
+func (bs *BlockStatement) statementNode()       {}
+func (bs *BlockStatement) TokenLiteral() string { return bs.Token.Literal }
+func (bs *BlockStatement) String() string {
+	var out bytes.Buffer
+	for _, s := range bs.Statements {
+		out.WriteString(s.String())
+	}
+	return out.String()
+}
+
+// IfExpression if 表达式
 type IfExpression struct {
 	Token       token.Token // 'if'
 	Condition   Expression
@@ -240,28 +296,13 @@ func (ie *IfExpression) String() string {
 	return out.String()
 }
 
-// BlockStatement 块语句 { ... }
-type BlockStatement struct {
-	Token      token.Token // '{'
-	Statements []Statement
-}
-
-func (bs *BlockStatement) statementNode()       {}
-func (bs *BlockStatement) TokenLiteral() string { return bs.Token.Literal }
-func (bs *BlockStatement) String() string {
-	var out bytes.Buffer
-	for _, s := range bs.Statements {
-		out.WriteString(s.String())
-	}
-	return out.String()
-}
-
-// FunctionLiteral 函数定义 function(x, y) { ... }
+// FunctionLiteral 函数字面量
 type FunctionLiteral struct {
-	Token      token.Token // 'function'
-	Parameters []*Identifier
+	Token      token.Token // 'fn'
+	Parameters []*FieldDefinition // Parameters are fields (name: type)
 	Body       *BlockStatement
-	Name       string // 可选，对于匿名函数为空
+	Name       string // Optional name
+	ReturnType string // Optional return type
 }
 
 func (fl *FunctionLiteral) expressionNode()      {}
@@ -269,9 +310,6 @@ func (fl *FunctionLiteral) TokenLiteral() string { return fl.Token.Literal }
 func (fl *FunctionLiteral) String() string {
 	var out bytes.Buffer
 	out.WriteString(fl.TokenLiteral())
-	if fl.Name != "" {
-		out.WriteString(" " + fl.Name)
-	}
 	out.WriteString("(")
 	for i, p := range fl.Parameters {
 		out.WriteString(p.String())
@@ -284,10 +322,10 @@ func (fl *FunctionLiteral) String() string {
 	return out.String()
 }
 
-// CallExpression 函数调用 add(1, 2)
+// CallExpression 调用表达式
 type CallExpression struct {
 	Token     token.Token // '('
-	Function  Expression  // 标识符或函数字面量
+	Function  Expression  // Identifier or FunctionLiteral
 	Arguments []Expression
 }
 
@@ -307,17 +345,7 @@ func (ce *CallExpression) String() string {
 	return out.String()
 }
 
-// StringLiteral 字符串
-type StringLiteral struct {
-	Token token.Token
-	Value string
-}
-
-func (sl *StringLiteral) expressionNode()      {}
-func (sl *StringLiteral) TokenLiteral() string { return sl.Token.Literal }
-func (sl *StringLiteral) String() string       { return sl.Token.Literal }
-
-// ArrayLiteral 数组字面量 [1, 2, 3]
+// ArrayLiteral 数组字面量
 type ArrayLiteral struct {
 	Token    token.Token // '['
 	Elements []Expression
@@ -338,32 +366,28 @@ func (al *ArrayLiteral) String() string {
 	return out.String()
 }
 
-// MapLiteral { key: val, ... }
+// MapLiteral Map字面量
 type MapLiteral struct {
 	Token token.Token // '{'
-	Pairs map[Expression]Expression // Only supports String keys effectively for now
+	Pairs map[Expression]Expression
 }
 
-func (ml *MapLiteral) expressionNode() {}
+func (ml *MapLiteral) expressionNode()      {}
 func (ml *MapLiteral) TokenLiteral() string { return ml.Token.Literal }
 func (ml *MapLiteral) String() string {
 	var out bytes.Buffer
 	out.WriteString("{")
-	i := 0
 	for key, value := range ml.Pairs {
-		if i > 0 {
-			out.WriteString(", ")
-		}
 		out.WriteString(key.String())
 		out.WriteString(":")
 		out.WriteString(value.String())
-		i++
+		out.WriteString(", ")
 	}
 	out.WriteString("}")
 	return out.String()
 }
 
-// IndexExpression 数组/Map索引 arr[1], map["key"]
+// IndexExpression 索引表达式
 type IndexExpression struct {
 	Token token.Token // '['
 	Left  Expression
@@ -382,62 +406,99 @@ func (ie *IndexExpression) String() string {
 	return out.String()
 }
 
-// ClassStatement 类定义 class Person extends Animal { ... }
+// WhileStatement while 循环
+type WhileStatement struct {
+	Token     token.Token // token.WHILE
+	Condition Expression
+	Body      *BlockStatement
+}
+
+func (ws *WhileStatement) statementNode()       {}
+func (ws *WhileStatement) TokenLiteral() string { return ws.Token.Literal }
+func (ws *WhileStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("while")
+	out.WriteString(ws.Condition.String())
+	out.WriteString(" ")
+	out.WriteString(ws.Body.String())
+	return out.String()
+}
+
+// ForStatement for loop
+type ForStatement struct {
+	Token     token.Token // token.FOR
+	Init      Statement
+	Condition Expression
+	Update    Statement
+	Body      *BlockStatement
+}
+
+func (fs *ForStatement) statementNode()       {}
+func (fs *ForStatement) TokenLiteral() string { return fs.Token.Literal }
+func (fs *ForStatement) String() string {
+	var out bytes.Buffer
+	out.WriteString("for (")
+	if fs.Init != nil {
+		out.WriteString(fs.Init.String())
+	}
+	out.WriteString("; ")
+	if fs.Condition != nil {
+		out.WriteString(fs.Condition.String())
+	}
+	out.WriteString("; ")
+	if fs.Update != nil {
+		out.WriteString(fs.Update.String())
+	}
+	out.WriteString(") ")
+	out.WriteString(fs.Body.String())
+	return out.String()
+}
+
+// FieldDefinition represents a field/parameter with type
+type FieldDefinition struct {
+	Token token.Token
+	Name  *Identifier
+	Type  string // "int", "string", "void", "bool"
+	Value Expression
+}
+
+func (fd *FieldDefinition) String() string {
+	return fd.Name.String() + ": " + fd.Type
+}
+
+// ImportStatement represents a declare statement
+type ImportStatement struct {
+	Token      token.Token // token.DECLARE
+	Name       *Identifier
+	Parameters []*FieldDefinition
+	ReturnType string
+}
+
+func (is *ImportStatement) statementNode()       {}
+func (is *ImportStatement) TokenLiteral() string { return is.Token.Literal }
+func (is *ImportStatement) String() string {
+	return "declare function " + is.Name.String()
+}
+
+// ClassStatement represents a class definition
 type ClassStatement struct {
-	Token  token.Token // 'class'
-	Name   *Identifier
-	Parent *Identifier // 可选的父类
-	Fields []*FieldDefinition
+	Token   token.Token // token.CLASS
+	Name    *Identifier
+	Fields  []*FieldDefinition
 	Methods []*FunctionLiteral
+	Parent  *Identifier // Optional parent class
+	Implements []*Identifier // Implemented interfaces
 }
 
 func (cs *ClassStatement) statementNode()       {}
 func (cs *ClassStatement) TokenLiteral() string { return cs.Token.Literal }
 func (cs *ClassStatement) String() string {
-	var out bytes.Buffer
-	out.WriteString("class ")
-	out.WriteString(cs.Name.String())
-	if cs.Parent != nil {
-		out.WriteString(" extends " + cs.Parent.String())
-	}
-	out.WriteString(" { ")
-	for _, f := range cs.Fields {
-		out.WriteString(f.String())
-	}
-	for _, m := range cs.Methods {
-		out.WriteString(m.String())
-	}
-	out.WriteString(" }")
-	return out.String()
+	return "class " + cs.Name.String()
 }
 
-// FieldDefinition 类字段定义 name: type = value;
-type FieldDefinition struct {
-	Token token.Token // 字段名 token
-	Name  *Identifier
-	Type  string     // 类型标注 (可选)
-	Value Expression // 初始值 (可选)
-}
-
-func (fd *FieldDefinition) statementNode()       {}
-func (fd *FieldDefinition) TokenLiteral() string { return fd.Token.Literal }
-func (fd *FieldDefinition) String() string {
-	var out bytes.Buffer
-	out.WriteString(fd.Name.String())
-	if fd.Type != "" {
-		out.WriteString(": " + fd.Type)
-	}
-	if fd.Value != nil {
-		out.WriteString(" = ")
-		out.WriteString(fd.Value.String())
-	}
-	out.WriteString(";")
-	return out.String()
-}
-
-// NewExpression 对象创建 new Person()
+// NewExpression represents new Class()
 type NewExpression struct {
-	Token     token.Token // 'new'
+	Token     token.Token // token.NEW
 	Class     *Identifier
 	Arguments []Expression
 }
@@ -445,23 +506,23 @@ type NewExpression struct {
 func (ne *NewExpression) expressionNode()      {}
 func (ne *NewExpression) TokenLiteral() string { return ne.Token.Literal }
 func (ne *NewExpression) String() string {
-	var out bytes.Buffer
-	out.WriteString("new ")
-	out.WriteString(ne.Class.String())
-	out.WriteString("(")
-	for i, arg := range ne.Arguments {
-		out.WriteString(arg.String())
-		if i < len(ne.Arguments)-1 {
-			out.WriteString(", ")
-		}
-	}
-	out.WriteString(")")
-	return out.String()
+	return "new " + ne.Class.String()
 }
 
-// MemberExpression 成员访问 obj.prop
+// ThisExpression represents 'this'
+type ThisExpression struct {
+	Token token.Token // token.THIS
+}
+
+func (te *ThisExpression) expressionNode()      {}
+func (te *ThisExpression) TokenLiteral() string { return te.Token.Literal }
+func (te *ThisExpression) String() string {
+	return "this"
+}
+
+// MemberExpression represents obj.prop
 type MemberExpression struct {
-	Token    token.Token // '.'
+	Token    token.Token // token.DOT
 	Object   Expression
 	Property *Identifier
 }
@@ -469,34 +530,12 @@ type MemberExpression struct {
 func (me *MemberExpression) expressionNode()      {}
 func (me *MemberExpression) TokenLiteral() string { return me.Token.Literal }
 func (me *MemberExpression) String() string {
-	var out bytes.Buffer
-	out.WriteString(me.Object.String())
-	out.WriteString(".")
-	out.WriteString(me.Property.String())
-	return out.String()
+	return me.Object.String() + "." + me.Property.String()
 }
 
-// ThisExpression 'this' 关键字
-type ThisExpression struct {
-	Token token.Token // 'this'
-}
-
-func (te *ThisExpression) expressionNode()      {}
-func (te *ThisExpression) TokenLiteral() string { return te.Token.Literal }
-func (te *ThisExpression) String() string       { return "this" }
-
-// SuperExpression 'super' 关键字 (super.method())
-type SuperExpression struct {
-	Token token.Token // 'super'
-}
-
-func (se *SuperExpression) expressionNode()      {}
-func (se *SuperExpression) TokenLiteral() string { return se.Token.Literal }
-func (se *SuperExpression) String() string       { return "super" }
-
-// AssignmentExpression 赋值 x = 5, obj.prop = 5
+// AssignmentExpression represents left = right
 type AssignmentExpression struct {
-	Token token.Token // '='
+	Token token.Token // token.ASSIGN
 	Left  Expression
 	Value Expression
 }
@@ -504,9 +543,40 @@ type AssignmentExpression struct {
 func (ae *AssignmentExpression) expressionNode()      {}
 func (ae *AssignmentExpression) TokenLiteral() string { return ae.Token.Literal }
 func (ae *AssignmentExpression) String() string {
-	var out bytes.Buffer
-	out.WriteString(ae.Left.String())
-	out.WriteString(" = ")
-	out.WriteString(ae.Value.String())
-	return out.String()
+	return ae.Left.String() + " = " + ae.Value.String()
+}
+
+// SuperExpression represents 'super'
+type SuperExpression struct {
+	Token token.Token // token.SUPER
+}
+
+func (se *SuperExpression) expressionNode()      {}
+func (se *SuperExpression) TokenLiteral() string { return se.Token.Literal }
+func (se *SuperExpression) String() string {
+	return "super"
+}
+
+// MethodSignature represents method in interface
+type MethodSignature struct {
+	Token      token.Token
+	Name       string
+	Parameters []*FieldDefinition
+	ReturnType string
+}
+
+func (ms *MethodSignature) String() string {
+	return ms.Name
+}
+
+// SpawnStatement represents spawn func()
+type SpawnStatement struct {
+	Token token.Token // token.SPAWN
+	Call  *CallExpression
+}
+
+func (ss *SpawnStatement) statementNode()       {}
+func (ss *SpawnStatement) TokenLiteral() string { return ss.Token.Literal }
+func (ss *SpawnStatement) String() string {
+	return "spawn " + ss.Call.String()
 }
