@@ -35,9 +35,9 @@ Although core language features (type system, classes, generics, garbage collect
     *   **Limitations**: Primitive error handling.
 
 *   **Scenario B: High-performance backend services (Node.js/Go replacement)**
-    *   **Status**: 🚧 **Not Ready (Progress ~50%)**
-    *   **Missing**: Error Handling (`try/catch`).
-    *   **Done**: `std/http`, `std/net`, Module System (`import/export`).
+    *   **Status**: 🚧 **Not Ready (Progress ~65%)**
+    *   **Done**: `std/http`, `std/net`, Module System (`import/export`), Error Handling (`try/catch`).
+    *   **Missing**: Advanced Types (Union Types).
 
 *   **Scenario C: Full-stack Web Apps (TypeScript + React/Vue replacement)**
     *   **Status**: ❌ **Not Ready (Progress ~15%)**
@@ -68,6 +68,7 @@ Although core language features (type system, classes, generics, garbage collect
 - [x] **Type Aliases**: Support `type MyType = int`.
 - [x] **Compile-Time Checks**: Strict validation of function arguments (count).
 - [x] **Generics**: Implement `<T>` for functions and classes (e.g., `Array<T>`).
+- [x] **Error Handling**: Implement `try/catch/finally` and `throw` (WASM Exceptions).
 - [ ] **Advanced Types**: Union types (`int | string`).
 
 ### 📅 Phase 3: Concurrency, Memory & Performance (The "Go" Power)
@@ -101,8 +102,9 @@ Although core language features (type system, classes, generics, garbage collect
 
 ### Next Immediate Steps
 1.  Implement **Advanced Types** (Union Types).
-2.  Start **std/http** implementation.
-3.  Expand **std/os** with more system calls.
+2.  Implement **DOM APIs** for Frontend.
+3.  Implement **Auto-Parallelism** (Task Scheduler).
+4.  Expand **std/os** with more system calls.
 
 ## Getting Started
 
