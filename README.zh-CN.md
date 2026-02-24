@@ -32,7 +32,7 @@ OmniScript 的核心理念是 **"一种语言，两个世界"**：
 *   **场景 A：编写简单的 CLI 工具、自动化脚本、算法验证**
     *   **状态**：✅ **现在可用 (Alpha)**
     *   **能力**：你可以使用文件系统 (`std/fs`)、路径处理 (`std/path`)、进程控制 (`std/os`)、复杂的数据结构 (`Map`, `Array`, `Class`, `Generic`) 和并发 (`spawn`)。
-    *   **限制**：只能单文件编写（缺少模块系统），错误处理比较原始。
+    *   **限制**：错误处理比较原始。
 
 *   **场景 B：编写高性能 Web 后端服务 (替代 Node.js/Go)**
     *   **状态**：🚧 **尚不可用 (预计进度 70%)**
@@ -50,7 +50,7 @@ OmniScript 的核心理念是 **"一种语言，两个世界"**：
 
 - [x] **多目标编译器**：支持 `-target=wasi` (后端) 和 `-target=browser` (前端)。
 - [x] **WASI 集成**：实现 `wasi_snapshot_preview1` 绑定。
-    - [x] 将 `console.log` 替换为 `fd_write` (stdout)。
+    - [x] **Console API**：支持 `console.log`, `console.warn`, `console.error`（Node.js 兼容）。
     - [x] 读取命令行参数。
     - [x] 读取环境变量 (process.env)。
 - [x] **文件系统 API**：实现 `std/fs` (与 Node.js 一致)。
@@ -94,16 +94,16 @@ OmniScript 的核心理念是 **"一种语言，两个世界"**：
     - [x] **字符串**：基本的字符串操作 (`substring`, `charCodeAt`, `length`)。
 - [x] **std/path**：跨平台路径操作。
 - [x] **std/fs**：文件系统 API (见阶段 1)。
-- [x] **std/http**：高性能 HTTP 1.1/2 服务器 (使用 WASI-socket 或主机绑定)。
-- [x] **std/net**：低级 TCP/UDP 访问。
+- [x] **std/http**：HTTP Server/Client (通过 Host Bindings)。
+- [x] **std/net**：TCP Server/Socket (通过 Host Bindings)。
 - [x] **std/os**：操作系统级交互 (process.exit, process.env)。
 
 ---
 
 ### 下一步计划 (Next Immediate Steps)
-1.  **自动并行化**：实现计算密度分析。
-2.  **事件系统**：实现完整的回调与事件循环。
-3.  **std/atomic**：暴露原子操作 API 给用户。
+1.  **std/atomic**：暴露原子操作 API 给用户。
+2.  **自动并行化**：实现计算密度分析。
+3.  **事件系统**：实现完整的回调与事件循环。
 
 ## 快速开始 (Getting Started)
 

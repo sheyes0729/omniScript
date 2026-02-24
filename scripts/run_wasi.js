@@ -152,6 +152,16 @@ if (isMainThread) {
                 print_int: (val) => {
                     console.log(val);
                 },
+                console_log_int: (val) => {
+                    process.stdout.write(val.toString());
+                },
+                console_log_char: (val) => {
+                    process.stdout.write(String.fromCharCode(val));
+                },
+                console_log_str: (ptr) => {
+                    const str = readString(sharedMemory, ptr);
+                    process.stdout.write(str);
+                },
                 host_get_global: (namePtr) => {
                     const name = readString(sharedMemory, namePtr);
                     if (globalModules[name]) {
@@ -334,6 +344,16 @@ if (isMainThread) {
                     // console.log("[Worker PrintInt]", val);
                     // process.stdout.write(`[Worker PrintInt] ${val}\n`);
                     fs.writeSync(1, `${val}\n`);
+                },
+                console_log_str: (ptr) => {
+                    const str = readString(memory, ptr);
+                    fs.writeSync(1, str);
+                },
+                console_log_int: (val) => {
+                    fs.writeSync(1, val.toString());
+                },
+                console_log_char: (val) => {
+                    fs.writeSync(1, String.fromCharCode(val));
                 },
                 host_to_int: (val) => val,
                 host_get_global: (namePtr) => {

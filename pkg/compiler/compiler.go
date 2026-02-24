@@ -3673,6 +3673,51 @@ func (c *Compiler) Compile(node ast.Node) error {
 				return nil
 			}
 
+			// Check for console.log / console.error / console.warn
+			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "console" {
+				method := member.Property.Value
+				if method == "log" || method == "error" || method == "warn" {
+					if _, ok := c.importedFuncs["console_log_str"]; !ok {
+						c.importedFuncs["console_log_str"] = &ast.ImportStatement{ReturnType: "void", Parameters: make([]*ast.FieldDefinition, 1)}
+					}
+					if _, ok := c.importedFuncs["console_log_int"]; !ok {
+						c.importedFuncs["console_log_int"] = &ast.ImportStatement{ReturnType: "void", Parameters: make([]*ast.FieldDefinition, 1)}
+					}
+					if _, ok := c.importedFuncs["console_log_char"]; !ok {
+						c.importedFuncs["console_log_char"] = &ast.ImportStatement{ReturnType: "void", Parameters: make([]*ast.FieldDefinition, 1)}
+					}
+
+					for i, arg := range node.Arguments {
+						if i > 0 {
+							c.emit("i32.const 32") // space
+							c.emit("call $console_log_char")
+						}
+
+						if err := c.Compile(arg); err != nil {
+							return err
+						}
+
+						switch c.stackType {
+						case TypeString:
+							c.emit("call $console_log_str")
+						case TypeInt:
+							c.emit("call $console_log_int")
+						case TypeBool:
+							c.emit("call $console_log_int")
+						default:
+							c.emit("call $console_log_int")
+						}
+					}
+
+					// Newline
+					c.emit("i32.const 10")
+					c.emit("call $console_log_char")
+					
+					c.stackType = TypeVoid
+					return nil
+				}
+			}
+
 			// Check for std.args (WASI only)
 			// Usage: std.args() -> Array<string>
 			if ident, ok := member.Object.(*ast.Identifier); ok && ident.Value == "std" && member.Property.Value == "args" {

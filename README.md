@@ -45,12 +45,12 @@ Although core language features (type system, classes, generics, garbage collect
     *   **Done**: Basic DOM Access via Host Interop (`document.getElementById`, events), **Task Scheduler** (Auto-Parallelism Basic).
     *   **Missing**: Event System (callbacks), Full Compute Density Analysis.
 
-### �📅 Phase 1: Backend Foundation (The "Node.js Killer" Start)
+### 📅 Phase 1: Backend Foundation (The "Node.js Killer" Start)
 **Goal**: Enable OmniScript to run as a standalone backend application, interacting with the OS.
 
 - [x] **Multi-Target Compiler**: Support `-target=wasi` (Backend) and `-target=browser` (Frontend).
 - [x] **WASI Integration**: Implement `wasi_snapshot_preview1` bindings.
-    - [x] Replace `console.log` with `fd_write` (stdout).
+    - [x] **Console API**: `console.log`, `console.warn`, `console.error` (Node.js compatible).
     - [x] Read command line arguments.
     - [x] Read environment variables (process.env).
 - [x] **File System API**: Implement `std/fs` (Node.js-identical).
@@ -103,9 +103,9 @@ Although core language features (type system, classes, generics, garbage collect
 ---
 
 ### Next Immediate Steps
-1.  Implement **Auto-Parallelism** (Task Scheduler).
-2.  Expand **std/os** with more system calls.
-3.  Implement **std/net** (TCP Server).
+1.  **std/atomic**: Expose atomic operations API.
+2.  **Auto-Parallelism**: Implement compute density analysis.
+3.  **Event System**: Implement callbacks and event loop.
 
 ## Getting Started
 
